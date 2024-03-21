@@ -1,2 +1,9 @@
 !.gitignore
+GRASS/*
 *.tif
+*.shp
+*.shx
+*.prj
+*.qix
+*.dbf
+*.cpg
