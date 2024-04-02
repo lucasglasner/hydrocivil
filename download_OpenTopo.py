@@ -14,7 +14,7 @@ import requests
 def download_OpenTopo(DATASET, ROI, OUTPUTPATH, API_KEY='YOURKEY'):
     """
     This function makes a request to the OpenTopo server and downloads
-    a desired digital elevation model for a small region. 
+    DEM data for a small region. 
 
     Args:
         DATASET (str): Any of this:
