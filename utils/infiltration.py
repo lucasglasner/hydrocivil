@@ -7,8 +7,6 @@
  # @ Dependencies:
  '''
 
-from utils import is_iterable
-
 # -------- curve number correction for antecedent moisture conditions -------- #
 
 

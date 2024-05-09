@@ -15,8 +15,44 @@ or continuous lumped models.
 
 ### References 
 
-<!-- Grimaldi, S., & Petroselli, A. (2015). Do we still need the rational formula? An alternative empirical procedure for peak discharge estimation in small and ungauged basins. Hydrological Sciences Journal, 60(1), 67-77.
+``` bib
+@article{aguayo2023,
+  title={PatagoniaMet: A multi-source hydrometeorological dataset for Western Patagonia},
+  author={Aguayo, R., León-Muñoz, J., Aguayo, M., Baez-Villanueva, O., Fernandez, A. Zambrano-Bigiarini, M., and Jacques-Coper, M.},
+  journal={Scientific Data. in review},
+  publisher={Nature Publishing Group UK London}
+}
 
-Aguayo, R., León-Muñoz, J., Aguayo, M., Baez-Villanueva, O. M., Zambrano-Bigiarini, M., Fernández, A., & Jacques-Coper, M. (2024). PatagoniaMet: A multi-source hydrometeorological dataset for Western Patagonia. Scientific Data, 11(1), 6. https://github.com/rodaguayo/PatagoniaMet
 
-Jenson, S. K., & Domingue, J. O. (1988). Extracting topographic structure from digital elevation data for geographic information system analysis. Photogrammetric engineering and remote sensing, 54(11), 1593-1600. -->
+@article{arteaga1985,
+  title={Método para la deteminación de hidrogramas unitarios sintéticos en Chile},
+  author={Arteaga F. y Benítez A.},
+  year={1985},
+  journal={Empresa nacional de electricidad (ENDESA), Chile}
+}
+
+@article{jenson1988extracting,
+  title={Extracting topographic structure from digital elevation data for geographic information system analysis},
+  author={Jenson, Susan K and Domingue, Julia O},
+  journal={Photogrammetric engineering and remote sensing},
+  volume={54},
+  number={11},
+  pages={1593--1600},
+  year={1988},
+  publisher={Citeseer}
+}
+
+@article{espildora1979,
+  title={Criterios para la caracterización y selección de lluvias de diseño.},
+  author={Espíldora B. y Echeverría A.},
+  year={1979},
+  journal={IV Coloquio Nacional, Sociedad Chilena de Ingeniería Hidráulica (SOCHID).}
+}
+
+@misc{chow1971applied,
+  title={Applied hydrology},
+  author={Chow, VenTe},
+  year={1971},
+  publisher={McGraw-Hill}
+}
+```

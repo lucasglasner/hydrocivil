@@ -11,10 +11,9 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from infiltration import cum_abstraction
+from utils.misc import is_iterable
+from utils.infiltration import cum_abstraction
 from scipy.interpolate import interp1d
-from utils import is_iterable
-
 # ----------------------- duration coefficient routines ---------------------- #
 
 

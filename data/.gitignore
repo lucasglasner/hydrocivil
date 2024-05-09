@@ -1,5 +1,6 @@
 !.gitignore
 GRASS/*
+Basins/*
 *.tif
 *.shp
 *.shx
@@ -9,4 +10,4 @@ GRASS/*
 *.cpg
 *.gpkg
 *.xml
-parameters.xlsx
+*.nc

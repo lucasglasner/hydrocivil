@@ -11,7 +11,7 @@ import os
 import requests
 
 
-def download_OpenTopo(DATASET, ROI, OUTPUTPATH, API_KEY='YOURKEY'):
+def OpenTopo(DATASET, ROI, OUTPUTPATH, API_KEY='YOURKEY'):
     """
     This function makes a request to the OpenTopo server and downloads
     DEM data for a small region. 
@@ -69,5 +69,5 @@ if __name__ == '__main__':
     regionofinterest = (-71, -70, -33, -32)
     ofile = 'data/ESA_COP30.tif'
     API_KEY = open('.opentopoapikey').read()
-    response = download_OpenTopo(demtype, regionofinterest, ofile,
-                                 API_KEY=API_KEY)
+    response = OpenTopo(demtype, regionofinterest, ofile,
+                        API_KEY=API_KEY)
