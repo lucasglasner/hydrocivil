@@ -7,4 +7,6 @@ GRASS/*
 *.qix
 *.dbf
 *.cpg
+*.gpkg
+*.xml
 parameters.xlsx
