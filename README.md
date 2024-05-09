@@ -8,14 +8,13 @@ The project consist of the following parts (in progress):
 
 1) Simple climate data access and Digital Elevation Model (DEM) download. 
 2) Data preprocess and computation of DEM-derived rasters/vectors.
-3) Automatic basin delimitation based on georeferenced points.
+3) Automatic basin delimitation based on georeferenced points (SAGA GIS).
 4) Postprocess of basin geomorphological properties and creation of basin property tables. 
-5) Hydrological modelling based on basin property tables along with event-based
-or continuous lumped models. 
+5) Hydrological modelling based on basin property tables along with simple lumped models. 
 
 ### References 
 
-``` bib
+```bib
 @article{aguayo2023,
   title={PatagoniaMet: A multi-source hydrometeorological dataset for Western Patagonia},
   author={Aguayo, R., León-Muñoz, J., Aguayo, M., Baez-Villanueva, O., Fernandez, A. Zambrano-Bigiarini, M., and Jacques-Coper, M.},
