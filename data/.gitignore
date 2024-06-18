@@ -1,6 +1,8 @@
 !.gitignore
 GRASS/*
 Basins/*
+Kimal
+params_Kimal.csv
 *.tif
 *.shp
 *.shx
