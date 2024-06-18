@@ -214,11 +214,13 @@ def effective_storms(storms, method='SCS', **kwargs):
             dcoef, coords={'storm_duration': storms.storm_duration})
         pr_eff = storms.cumsum('time')*dcoef
         pr_eff.name = 'pr_eff'
+
         infilt = pr_eff.to_dataframe().map(cum_abstraction, **kwargs)
         pr_eff = pr_eff-infilt.to_xarray()
         pr_eff = pr_eff.diff('time').reindex(
             {'time': storms.time}).bfill('time')
         pr_eff = pr_eff.where(storms >= 0)
+
         storms = xr.merge([storms, pr_eff])
         storms.pr_eff.attrs = attrs
         storms.pr_eff.attrs['standard_name'] = 'effective precipitation rate'

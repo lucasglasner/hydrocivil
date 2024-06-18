@@ -13,3 +13,5 @@ params_Kimal.csv
 *.gpkg
 *.xml
 *.nc
+*.csv
+!params.csv
