@@ -45,26 +45,30 @@ def CN_correction(CN_II, AMC):
         raise RuntimeError(text)
 
 
-def cum_abstraction(pr, CN):
+def cum_abstraction(pr, CN, r=0.2, pr_fix=False):
     """
     Compute accumulated abstractions/infiltrations
 
     Args:
         pr (float): precipitation
         CN (float): curve number
+        r (float): ratio
 
     Returns:
         (float): mm infiltrated into soil
     """
     # S = maximum infiltration given soil type and cover (CN)
-    # I0 = 0.2 * S infiltration until pond formation
+    # I0 = r * S infiltration until pond formation
     S = (25400-254*CN)/CN
-    if pr > 0.2*S:
-        a = 0.2*S
+    if (pr < 100) and pr_fix:
+        I0 = r*pr*S/100
     else:
-        a = pr
-    if pr >= 0.2*S:
-        b = (S*(pr-0.2*S))/(pr+0.8*S)
+        I0 = r*S
+
+    if pr >= I0:
+        Ia = I0
+        Fa = (S*(pr-I0))/(pr+S-I0)
     else:
-        b = 0
-    return a+b
+        Ia = pr
+        Fa = 0
+    return Ia+Fa
