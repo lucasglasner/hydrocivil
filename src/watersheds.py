@@ -100,7 +100,8 @@ class DrainageBasin:
         aspect = aspect.where(aspect != -9999)
         return aspect
 
-    def compute_geoparams(self, main_river_kwargs={}):
+    def compute_geoparams(self, main_river_kwargs={}, slope_gdal_kwargs={},
+                          aspect_gdal_kwargs={}):
         """
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
@@ -115,10 +116,21 @@ class DrainageBasin:
             main_river_kwargs (dict, optional): 
                 Additional arguments for the main river finding routine.
                 Defaults to {}. Details in src.geomorphology.main_river routine
+            slope_gdal_kwargs (dict, optional): 
+                Additional arguments for the slope computing function.
+                Defaults to {}.
+            aspect_gdal_kwargs (dict, optional): 
+                Additional arguments for the aspect computing function.
+                Defaults to {}.
 
         Returns:
             pandas.DataFrame: Table with basin geomorphological properties
         """
+        # Compute slope and aspect. Update dem property
+        slope = self.compute_slope(**slope_gdal_kwargs)
+        aspect = self.compute_aspect(**aspect_gdal_kwargs)
+        self.dem = xr.merge([self.dem, slope, aspect])
+
         # Geographical parameters
         geo_params = basin_geographical_params(self.fid, self.wgeometry)
 
@@ -130,33 +142,14 @@ class DrainageBasin:
         mriverlen = self.rgeometry.loc[mainriver.index].length.sum()/1e3
         self.geoparams['mriverlen_km'] = mriverlen.item()
 
-        rhod = self.rgeometry.length.sum()/geo_params['area_km2']
+        rhod = self.rgeometry.length.sum()/geo_params['area_km2']/1e3
         Kf = geo_params['area_km2']/(self.geoparams['mriverlen_km']**2)
         self.geoparams['rhod_1'] = rhod
         self.geoparams['Kf_1'] = Kf
         self.geoparams = pd.concat([geo_params,
                                     terrain_params,
                                     self.geoparams], axis=1).T
-        return self.geoparams
-
-    def compute(self):
-        """
-        Main compute class method. 
-        + Compute slope and aspect from given DEM
-        + Compute the geomorphological property table
-
-        Returns:
-            DrainageBasin: Returns the updated DrainageBasin class
-        """
-        # Get slope and aspect
-        slope = self.compute_slope()
-        aspect = self.compute_aspect()
-        self.dem = xr.merge([self.dem, slope, aspect])
-
-        # Get geomorphological properties
-        self.geoparams = self.compute_geoparams()
-
-        # Clean tmp files
         os.remove('.tmp.aspect.tif')
         os.remove('.tmp.slope.tif')
+
         return self
