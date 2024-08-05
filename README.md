@@ -2,17 +2,16 @@
 
 Routines for hydrologic analysis of river watersheds using standard GIS and numerical routines.
 
-Project purpose: develop routines for automatic watershed delimitation, morphometric analysis and hydrological design using event-based or continuous hydrological modelling.
+Project purpose: develop routines for automatic and multiple watershed delimitation, morphometric analysis and hydrological design using Chile event-based hydrological models.
 
-The project consist of the following parts (in progress): 
+The project consist of the following parts (in progress):
 
-1) Simple climate data access and Digital Elevation Model (DEM) download. 
-2) Data preprocess and computation of DEM-derived rasters/vectors.
-3) Automatic basin delimitation based on georeferenced points (SAGA GIS).
-4) Postprocess of basin geomorphological properties and creation of basin property tables. 
-5) Hydrological modelling based on basin property tables along with simple lumped models. 
+1) Climate data access and Digital Elevation Model (DEM) download.
+2) Automatic basin delimitation based on georeferenced points with SAGA-GIS.
+3) Postprocess of basin geomorphological properties and creation of basin property tables.
+4) Hydrological modelling based on basin property tables along with simple lumped models.
 
-### References 
+### References
 
 ```bib
 @article{aguayo2023,
