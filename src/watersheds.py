@@ -18,8 +18,21 @@ from osgeo import gdal
 from src.geomorphology import *
 
 
-class WaterShed:
+class DrainageBasin:
     def __init__(self, fid, wgeometry, rgeometry, dem):
+        """
+        Drainage Basin class constructor
+
+        Args:
+            fid (str): Basin identifier
+            wgeometry (GeoDataFrame): Watershed/Basin polygon
+            rgeometry (GeoDataFrame): RiverNetwork segments
+            dem (xarray.DataArray): Digital elevation model
+
+        Raises:
+            RuntimeError: If any of the given spatial data isnt in a projected
+                cartographic projection.
+        """
         self.fid = fid
         self.wgeometry = wgeometry
         self.rgeometry = rgeometry
@@ -33,19 +46,52 @@ class WaterShed:
             error = 'River network geometry must be in a projected (UTM) crs !'
             raise RuntimeError(error)
 
+    def __repr__(self) -> str:
+        """
+        What to show when invoking a DrainageBasin object
+        Returns:
+            str: Some metadata
+        """
+        return f'DrainageBasin\nFID: {self.fid}\n{self.geoparams}'
+
     def compute_slope(self, DEMProcessing_kwargs={},
                       open_rasterio_kwargs={}):
+        """
+        Computes slope raster from DEM using standard gdal routines
+
+        Args:
+            DEMProcessing_kwargs (dict, optional):
+                Arguments for gdal DEMProcessing algorithm. Defaults to {}.
+            open_rasterio_kwargs (dict, optional):
+                Arguments for rioxarray open rasterio function. Defaults to {}.
+
+        Returns:
+            xarray.DataArray: DEM derived slopes in m/m
+        """
         gdal.DEMProcessing('.tmp.slope.tif',
                            self.dem.elevation.encoding['source'],
                            'slope', computeEdges=True, slopeFormat='percent',
                            **DEMProcessing_kwargs)
-        slope = rxr.open_rasterio('.tmp.slope.tif', **open_rasterio_kwargs)
+        slope = rxr.open_rasterio('.tmp.slope.tif', masked=True,
+                                  **open_rasterio_kwargs)
         slope = slope.squeeze().to_dataset(name='slope')
         slope = slope.where(slope != -9999)/100
         return slope
 
     def compute_aspect(self, DEMProcessing_kwargs={},
                        open_rasterio_kwargs={}):
+        """
+        Computes aspect raster from DEM using standard gdal routines
+
+        Args:
+            DEMProcessing_kwargs (dict, optional):
+                Arguments for gdal DEMProcessing algorithm. Defaults to {}.
+            open_rasterio_kwargs (dict, optional):
+                Arguments for rioxarray open rasterio function. Defaults to {}.
+
+        Returns:
+            xarray.DataArray: DEM derived aspect in degrees
+        """
         gdal.DEMProcessing('.tmp.aspect.tif',
                            self.dem.elevation.encoding['source'],
                            'aspect', computeEdges=True, **DEMProcessing_kwargs)
@@ -55,6 +101,24 @@ class WaterShed:
         return aspect
 
     def compute_geoparams(self, main_river_kwargs={}):
+        """
+        Compute basin geomorphological properties:
+            1) Geographical properties: centroid coordinates, area, etc
+                Details in src.geomorphology.basin_geographical_params routine
+            2) Terrain properties: DEM derived properties like minimum, maximum
+                or mean height, etc.
+                Detalils in src.geomorphology.basin_terrain_params
+            3) Flow derived properties: Main river length using graph theory, 
+                drainage density and shape factor. 
+
+        Args:
+            main_river_kwargs (dict, optional): 
+                Additional arguments for the main river finding routine.
+                Defaults to {}. Details in src.geomorphology.main_river routine
+
+        Returns:
+            pandas.DataFrame: Table with basin geomorphological properties
+        """
         # Geographical parameters
         geo_params = basin_geographical_params(self.fid, self.wgeometry)
 
@@ -75,11 +139,18 @@ class WaterShed:
                                     self.geoparams], axis=1).T
         return self.geoparams
 
-    def compute(self, slope_gdal_kwargs={}, aspect_gdal_kwargs={}):
+    def compute(self):
+        """
+        Main compute class method. 
+        + Compute slope and aspect from given DEM
+        + Compute the geomorphological property table
 
+        Returns:
+            DrainageBasin: Returns the updated DrainageBasin class
+        """
         # Get slope and aspect
-        slope = self.compute_slope(**slope_gdal_kwargs)
-        aspect = self.compute_aspect(**aspect_gdal_kwargs)
+        slope = self.compute_slope()
+        aspect = self.compute_aspect()
         self.dem = xr.merge([self.dem, slope, aspect])
 
         # Get geomorphological properties
