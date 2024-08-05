@@ -155,7 +155,7 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
     Returns:
         uh, (qpR, tpR, tbR, tuR) (tuple):
             (unit hydrograph),
-            (Peak runoff (L/s/km2/mm), peak time (hours), time step (hours)))
+            (Peak runoff (m3/s/km2/mm), peak time (hours), time step (hours)))
     """
     def SUH_ArteagaBenitez_Coefficients():
         """ 
