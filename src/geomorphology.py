@@ -37,17 +37,21 @@ def main_river(river_network, node_a='NODE_A', node_b='NODE_B', length='LENGTH')
         (GeoDataFrame): Main river extracted from the river network
     """
     # Create River Network Graph
-    G = nx.DiGraph()
-    for a, b, leng in zip(river_network[node_a],
-                          river_network[node_b],
-                          river_network[length]):
-        G.add_edge(a, b, weight=leng)
+    try:
+        G = nx.DiGraph()
+        for a, b, leng in zip(river_network[node_a],
+                              river_network[node_b],
+                              river_network[length]):
+            G.add_edge(a, b, weight=leng)
 
-    # Get the main river segments
-    main_river = nx.dag_longest_path(G)
-    mask = river_network[node_a].map(lambda s: s in main_river)
-    main_river = river_network.loc[mask]
-    return main_river
+        # Get the main river segments
+        main_river = nx.dag_longest_path(G)
+        mask = river_network[node_a].map(lambda s: s in main_river)
+        main_river = river_network.loc[mask]
+        return main_river
+    except Exception as e:
+        print('Couldnt compute main river:', e)
+        return []
 
 
 def basin_geographical_params(fid, basin):

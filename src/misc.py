@@ -8,9 +8,18 @@
  # @ Dependencies:
  '''
 
+import os
 import pandas as pd
 
 # ---------------------------------------------------------------------------- #
+
+
+def get_psep():
+    if os.name == 'nt':
+        psep = '\\'
+    else:
+        psep = '/'
+    return psep
 
 
 def is_iterable(obj):
