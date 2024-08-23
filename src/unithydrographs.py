@@ -8,6 +8,7 @@
  # @ Dependencies:
  '''
 
+import warnings
 import numpy as np
 import pandas as pd
 import scipy.signal as sg
@@ -195,8 +196,8 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
         """
         tR = np.round(tu/tstep, 1)*tstep
         if ~((tR-tu) < 0.1 and (tR-tu) > -0.1):
-            print(f'tu: {tR:.3f} - (tR-tu) exceeds 10%,\
-                changing tstep to tu.')
+            warnings.warn(f'tu: {tR:.3f} - (tR-tu) exceeds 10%, changing tstep\
+                           to tu.')
         else:
             tR = tu
         return tR

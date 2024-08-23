@@ -9,6 +9,8 @@
 '''
 
 import os
+import warnings
+
 import numpy as np
 import pandas as pd
 import rioxarray as rxr
@@ -74,16 +76,13 @@ class RiverBasin(object):
 
     def __repr__(self) -> str:
         """
-        What to show when invoking a DrainageBasin object
+        What to show when invoking a RiverBasin object
         Returns:
             str: Some metadata
         """
         text = f'RiverBasin: {self.fid}\n'
         text = text+f'Parameters:\n\n{self.params.head(5)}'
         return text
-
-    def copy(self):
-        return type('Copy', self.__bases__, dict(self.__dict__))
 
     def compute_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
         """
@@ -129,7 +128,7 @@ class RiverBasin(object):
             (float): fraction of area below given elevation
         """
         if len(self.hypsometric_curve) == 0:
-            print('Computing hypsometric curve ...')
+            warnings.warn('Computing hypsometric curve ...')
             self.compute_hypsometric_curve(**kwargs)
         curve = self.hypsometric_curve
         if height < curve.index.min():
@@ -150,7 +149,7 @@ class RiverBasin(object):
             geo_params = basin_geographical_params(self.fid, self.bgeometry)
         except Exception as e:
             geo_params = pd.DataFrame([], index=[self.fid])
-            print('Geographical Parameters Error:', e, self.fid)
+            warnings.warn('Geographical Parameters Error:', e, self.fid)
         self.params = pd.concat([self.params, geo_params], axis=1)
         return self
 
@@ -179,7 +178,7 @@ class RiverBasin(object):
             terrain_params = basin_terrain_params(self.fid, self.dem)
         except Exception as e:
             terrain_params = pd.DataFrame([], index=[self.fid])
-            print('PostProcess DEM Error:', e, self.fid)
+            warnings.warn('PostProcess DEM Error:', e, self.fid)
         self.params = pd.concat([self.params, terrain_params], axis=1)
         return self
 
@@ -204,7 +203,7 @@ class RiverBasin(object):
             self.params['rhod_1'] = rhod
             self.params['Kf_1'] = Kf
         except Exception as e:
-            print('Flow derived properties Error:', e, self.fid)
+            warnings.warn('Flow derived properties Error:', e, self.fid)
         return self
 
     def process_lulc(self):
@@ -231,7 +230,7 @@ class RiverBasin(object):
 
         except Exception as e:
             counts = pd.DataFrame([], index=[self.fid])
-            print('LULC rasters Error:', e, self.fid)
+            warnings.warn('LULC rasters Error:', e, self.fid)
         return counts
 
     def fill_params(self,

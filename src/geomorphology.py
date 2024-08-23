@@ -10,6 +10,7 @@
 import pandas as pd
 import numpy as np
 import networkx as nx
+import warnings
 from shapely.geometry import Point
 
 # ------------------------ Geomorphological properties ----------------------- #
@@ -49,7 +50,7 @@ def main_river(river_network, node_a='NODE_A', node_b='NODE_B', length='LENGTH')
         main_river = river_network.loc[mask]
         return main_river
     except Exception as e:
-        print('Couldnt compute main river:', e)
+        warnings.warn('Couldnt compute main river:', e)
         return []
 
 
@@ -93,6 +94,54 @@ def basin_geographical_params(fid, basin):
     return params
 
 
+def terrain_exposure(aspect, fid=0):
+    """
+    From an aspect raster compute the percentage of the raster that
+    belong to each of the 8 typical geographical directions.
+    (i.e N, S, E, W, NE, SE, SW, NW).
+
+    Args:
+        aspect (xarray.DataArray): Aspect raster
+        fid (_type_, optional): Feature ID. Defaults to 0.'
+
+    Returns:
+        pandas.DataFrame: Table with main directions exposure
+    """
+    # Direction of exposure
+    direction_ranges = {
+        'N_exposure_%': (337.5, 22.5),
+        'S_exposure_%': (157.5, 202.5),
+        'E_exposure_%': (67.5, 112.5),
+        'W_exposure_%': (247.5, 292.5),
+        'NE_exposure_%': (22.5, 67.5),
+        'SE_exposure_%': (112.5, 157.5),
+        'SW_exposure_%': (202.5, 247.5),
+        'NW_exposure_%': (292.5, 337.5),
+    }
+    # Calculate percentages for each direction
+    tot_pixels = np.size(aspect.values) - \
+        np.isnan(aspect.values).sum()
+    dir_perc = {}
+
+    for direction, (min_angle, max_angle) in direction_ranges.items():
+        if min_angle > max_angle:
+            exposure = np.logical_or(
+                (aspect.values >= min_angle) & (
+                    aspect.values <= 360),
+                (aspect.values >= 0) & (aspect.values <= max_angle)
+            )
+        else:
+            exposure = (aspect.values >= min_angle) & (
+                aspect.values <= max_angle)
+
+        direction_pixels = np.sum(exposure)
+        dir_perc[direction] = (direction_pixels/tot_pixels)*100
+    dir_perc = pd.DataFrame(dir_perc.values(),
+                            index=dir_perc.keys(),
+                            columns=[fid]).T
+    return dir_perc
+
+
 def basin_terrain_params(fid, dem):
     """
     From an identifier (fid) and a digital elevation model (DEM) loaded
@@ -108,14 +157,12 @@ def basin_terrain_params(fid, dem):
         dem (xarray.Dataset): Digital elevation model
 
     Returns:
-        pandas.DataFrame: table with terrain-derived parameters
+        pandas.DataFrame: Table with terrain-derived parameters
     """
-    if 'slope' not in dem.variables:
-        raise RuntimeError('Dataset must have a "slope" variable')
-
-    if 'aspect' not in dem.variables:
-        raise RuntimeError('Dataset must have an "aspect" variable')
-
+    if 'elevation' not in dem.variables:
+        text = 'Input dem must be an xarray dataset with an "elevation" \
+                variable'
+        raise RuntimeError(text)
     params = pd.DataFrame([], index=[fid])
 
     # Height parameters
@@ -129,43 +176,15 @@ def basin_terrain_params(fid, dem):
     # Slope parameters
     if 'slope' in dem.variables:
         params['meanslope_1'] = dem.slope.mean().item()
+    else:
+        warnings.warn('"slope" variable doesnt exists in the dataset!')
 
     # Exposure/Aspect parameters
     if 'aspect' in dem.variables:
-        # Direction of exposure
-        direction_ranges = {
-            'N_exposure_%': (337.5, 22.5),
-            'S_exposure_%': (157.5, 202.5),
-            'E_exposure_%': (67.5, 112.5),
-            'W_exposure_%': (247.5, 292.5),
-            'NE_exposure_%': (22.5, 67.5),
-            'SE_exposure_%': (112.5, 157.5),
-            'SW_exposure_%': (202.5, 247.5),
-            'NW_exposure_%': (292.5, 337.5),
-        }
-
-        # Calculate percentages for each direction
-        tot_pixels = np.size(dem.aspect.values) - \
-            np.isnan(dem.aspect.values).sum()
-        dir_perc = {}
-
-        for direction, (min_angle, max_angle) in direction_ranges.items():
-            if min_angle > max_angle:
-                exposure = np.logical_or(
-                    (dem.aspect.values >= min_angle) & (
-                        dem.aspect.values <= 360),
-                    (dem.aspect.values >= 0) & (dem.aspect.values <= max_angle)
-                )
-            else:
-                exposure = (dem.aspect.values >= min_angle) & (
-                    dem.aspect.values <= max_angle)
-
-            direction_pixels = np.sum(exposure)
-            dir_perc[direction] = (direction_pixels/tot_pixels)*100
-        dir_perc = pd.DataFrame(dir_perc.values(),
-                                index=dir_perc.keys(),
-                                columns=[fid]).T
+        dir_perc = terrain_exposure(dem.aspect, fid=fid)
         params = pd.concat([params, dir_perc], axis=1)
+    else:
+        warnings.warn('"aspect" variable doesnt exists in the dataset!')
     return params
 
 # -------------------- Concentration time for rural basins ------------------- #
