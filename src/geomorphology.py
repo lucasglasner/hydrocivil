@@ -10,8 +10,6 @@
 import pandas as pd
 import numpy as np
 import networkx as nx
-import geopandas as gpd
-from osgeo import gdal
 from shapely.geometry import Point
 
 # ------------------------ Geomorphological properties ----------------------- #

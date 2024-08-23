@@ -244,8 +244,8 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
 # -------------------------------- MAIN CLASS -------------------------------- #
 
 
-class SynthUnitHydro:
-    def __init__(self, method, basin_params, timestep):
+class SynthUnitHydro(object):
+    def __init__(self, basin_params, method, timestep):
         """
         Synthetic unit hydrograph (SUH) constructor.
 
@@ -278,7 +278,7 @@ class SynthUnitHydro:
             uh, uh_params = SUH_SCS(tstep=self.timestep,
                                     interp_kwargs=interp_kwargs,
                                     **params)
-            uh.name, uh_params.name = 'SCS_m3*s-1*mm-1', 'Params_SCS'
+            uh.name, uh_params.name = 'SCS_m3 s-1 mm-1', 'Params_SCS'
 
         elif self.method == 'Arteaga&Benitez':
             params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
@@ -287,7 +287,7 @@ class SynthUnitHydro:
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
                                                interp_kwargs=interp_kwargs,
                                                **params)
-            uh.name, uh_params.name = 'A&B_m3*s-1*mm-1', 'Params_A&B'
+            uh.name, uh_params.name = 'A&B_m3s-1 mm-1', 'Params_A&B'
 
         else:
             raise ValueError(f'method="{self.method}" not valid!')

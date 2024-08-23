@@ -20,36 +20,47 @@ from scipy.interpolate import interp1d
 from src.geomorphology import *
 from src.misc import get_psep, raster_distribution
 
+# ---------------------------------------------------------------------------- #
 
-class DrainageBasin:
-    def __init__(self, fid, wgeometry, rgeometry, dem, lulc=[]):
+
+class RiverBasin(object):
+    def __init__(self, fid, bgeometry, rgeometry, dem, lulc=[]):
         """
         Drainage Basin class constructor
 
         Args:
             fid (str): Basin identifier
-            wgeometry (GeoDataFrame): Watershed/Basin polygon
-            rgeometry (GeoDataFrame): RiverNetwork segments
+            bgeometry (GeoDataFrame): Watershed polygon
+            rgeometry (GeoDataFrame): River network segments
             dem (xarray.DataArray): Digital elevation model
-            lulc (list): list of additional xarray.DataArray categorical
-                         land cover rasters.
+            lulc (list): list of additional categorical land cover rasters.
 
         Raises:
             RuntimeError: If any of the given spatial data isnt in a projected
                 cartographic projection.
         """
-        if not wgeometry.crs.is_projected:
-            error = 'Watershed geometry must be in a projected (UTM) crs !'
+        prj_error = '{} must be in a projected (UTM) crs !'
+        if not bgeometry.crs.is_projected:
+            error = prj_error.format('Watershed geometry')
             raise RuntimeError(error)
         if not rgeometry.crs.is_projected:
-            error = 'River network geometry must be in a projected (UTM) crs !'
+            error = prj_error.format('Rivers geometry')
             raise RuntimeError(error)
+        if not dem.rio.crs.is_projected:
+            error = prj_error.format('DEM raster')
+            raise RuntimeError(error)
+        if len(lulc) != 0:
+            for raster in lulc:
+                if not raster.rio.crs.is_projected:
+                    error = prj_error.format(f'LULC {raster.name} raster')
+                    raise RuntimeError(error)
         # ID
         self.fid = fid
 
         # Vectors
-        self.wgeometry = wgeometry
+        self.bgeometry = bgeometry
         self.rgeometry = rgeometry
+        self.rgeometry_main = pd.Series([])
 
         # Terrain
         self.dem = dem.rio.write_nodata(-9999).squeeze()
@@ -67,8 +78,12 @@ class DrainageBasin:
         Returns:
             str: Some metadata
         """
-        text = f'DrainageBasin\nFID: {self.fid}\n{self.params.T}'
+        text = f'RiverBasin: {self.fid}\n'
+        text = text+f'Parameters:\n\n{self.params.head(5)}'
         return text
+
+    def copy(self):
+        return type('Copy', self.__bases__, dict(self.__dict__))
 
     def compute_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
         """
@@ -90,7 +105,7 @@ class DrainageBasin:
         field = field.squeeze().to_dataset(name=varname)
         return field
 
-    def compute_hypsometry(self, bins='auto', **kwargs):
+    def compute_hypsometric_curve(self, bins='auto', **kwargs):
         """
         Based on terrain, compute hypsometric curve of the basin
 
@@ -115,7 +130,7 @@ class DrainageBasin:
         """
         if len(self.hypsometric_curve) == 0:
             print('Computing hypsometric curve ...')
-            self.compute_hypsometry(**kwargs)
+            self.compute_hypsometric_curve(**kwargs)
         curve = self.hypsometric_curve
         if height < curve.index.min():
             return 0
@@ -123,6 +138,21 @@ class DrainageBasin:
             return 1
         interp_func = interp1d(curve.index.values, curve.values)
         return interp_func(height).item()
+
+    def process_geography(self):
+        """
+        Compute geographical parameters of the basin
+
+        Returns:
+            self: updated class
+        """
+        try:
+            geo_params = basin_geographical_params(self.fid, self.bgeometry)
+        except Exception as e:
+            geo_params = pd.DataFrame([], index=[self.fid])
+            print('Geographical Parameters Error:', e, self.fid)
+        self.params = pd.concat([self.params, geo_params], axis=1)
+        return self
 
     def process_dem(self, **kwargs):
         """
@@ -133,7 +163,7 @@ class DrainageBasin:
             self: updated class
         """
         try:
-            curve = self.compute_hypsometry()
+            curve = self.compute_hypsometric_curve()
             slope = self.compute_gdaldem('slope',
                                          computeEdges=True,
                                          slopeFormat='percent',
@@ -153,21 +183,6 @@ class DrainageBasin:
         self.params = pd.concat([self.params, terrain_params], axis=1)
         return self
 
-    def process_geography(self):
-        """
-        Compute geographical parameters of the basin
-
-        Returns:
-            self: updated class
-        """
-        try:
-            geo_params = basin_geographical_params(self.fid, self.wgeometry)
-        except Exception as e:
-            geo_params = pd.DataFrame([], index=[self.fid])
-            print('Geographical Parameters Error:', e, self.fid)
-        self.params = pd.concat([self.params, geo_params], axis=1)
-        return self
-
     def process_river_network(self, **kwargs):
         """
         Compute river network properties
@@ -177,7 +192,8 @@ class DrainageBasin:
         """
         try:
             mainriver = main_river(self.rgeometry, **kwargs)
-            mriverlen = self.rgeometry.loc[mainriver.index].length.sum()/1e3
+            self.rgeometry_main = self.rgeometry.loc[mainriver.index]
+            mriverlen = self.rgeometry_main.length.sum()/1e3
             if mriverlen.item() != 0:
                 mriverlen = mriverlen.item()
             else:
@@ -218,19 +234,19 @@ class DrainageBasin:
             print('LULC rasters Error:', e, self.fid)
         return counts
 
-    def compute_params(self,
-                       main_river_kwargs={},
-                       gdal_kwargs={}):
+    def fill_params(self,
+                    main_river_kwargs={},
+                    gdal_kwargs={}):
         """
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
                 Details in src.geomorphology.basin_geographical_params routine
             2) Terrain properties: DEM derived properties like minimum, maximum
                 or mean height, etc.
-                Detalils in src.geomorphology.basin_terrain_params
+                Details in src.geomorphology.basin_terrain_params
             3) Flow derived properties: Main river length using graph theory, 
                 drainage density and shape factor. 
-
+                Details in src.geomorphology.main_river
         Args:
             main_river_kwargs (dict, optional): 
                 Additional arguments for the main river finding routine.
@@ -245,19 +261,19 @@ class DrainageBasin:
         if self.params.shape != (1, 0):
             self.params = pd.DataFrame([], index=[self.fid])
 
-        # Compute slope and aspect. Update dem property
-        self.process_dem(masked=True, **gdal_kwargs)
-
         # Geographical parameters
         self.process_geography()
+
+        # Compute slope and aspect. Update dem property
+        self.process_dem(masked=True, **gdal_kwargs)
 
         # Flow derived params
         self.process_river_network(**main_river_kwargs)
 
-        # Auxiliary raster distributions
-        counts = self.process_lulc()
+        # LULC raster distributions
+        lulc_counts = self.process_lulc()
 
-        self.params = pd.concat([self.params.T, counts.T],
+        self.params = pd.concat([self.params.T, lulc_counts.T],
                                 keys=['geoparams', 'lulc'])
 
         return self
