@@ -13,15 +13,16 @@ import numpy as np
 import pandas as pd
 import rioxarray as rxr
 import xarray as xr
+
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
 from src.geomorphology import *
-from src.misc import get_psep
+from src.misc import get_psep, raster_distribution
 
 
 class DrainageBasin:
-    def __init__(self, fid, wgeometry, rgeometry, dem, aux_rasters=[]):
+    def __init__(self, fid, wgeometry, rgeometry, dem, lulc=[]):
         """
         Drainage Basin class constructor
 
@@ -30,7 +31,8 @@ class DrainageBasin:
             wgeometry (GeoDataFrame): Watershed/Basin polygon
             rgeometry (GeoDataFrame): RiverNetwork segments
             dem (xarray.DataArray): Digital elevation model
-            aux_rasters (list): list of additional xarray.DataArray rasters
+            lulc (list): list of additional xarray.DataArray categorical
+                         land cover rasters.
 
         Raises:
             RuntimeError: If any of the given spatial data isnt in a projected
@@ -57,7 +59,7 @@ class DrainageBasin:
         # Properties
         self.params = pd.DataFrame([], index=[self.fid])
         self.hypsometric_curve = pd.Series([])
-        self.aux_rasters = aux_rasters
+        self.lulc = lulc
 
     def __repr__(self) -> str:
         """
@@ -65,27 +67,28 @@ class DrainageBasin:
         Returns:
             str: Some metadata
         """
-        text = f'DrainageBasin\nFID: {self.fid}\n{self.params}'
+        text = f'DrainageBasin\nFID: {self.fid}\n{self.params.T}'
         return text
 
-    def raster_distribution(self, raster, **kwargs):
+    def compute_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
         """
+        Accessor to gdaldem command line utility.
 
         Args:
-            raster (_type_): _description_
+            open_rasterio_kwargs (dict, optional):
+                Arguments for rioxarray open rasterio function. Defaults to {}.
 
         Returns:
-            (tuple): _description_
+            xarray.DataArray: DEM derived property
         """
-        total_pixels = raster.size
-        total_pixels = total_pixels-np.isnan(raster).sum()
-        total_pixels = total_pixels.item()
-
-        values = raster.squeeze().values.flatten()
-        values = values[~np.isnan(values)]
-        dist, values = np.histogram(values, **kwargs)
-        dist, values = dist/total_pixels, 0.5*(values[:-1]+values[1:])
-        return pd.Series(dist, index=values, name=f'{raster.name}_dist')
+        psep = get_psep()
+        iname = self.dem.elevation.encoding['source']
+        oname = self.dem.elevation.encoding['source'].split(psep)
+        oname = f'{psep}'.join(oname[:-1])+f'{psep}{varname}_'+oname[-1]
+        gdal.DEMProcessing(oname, iname, varname, **kwargs)
+        field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
+        field = field.squeeze().to_dataset(name=varname)
+        return field
 
     def compute_hypsometry(self, bins='auto', **kwargs):
         """
@@ -95,8 +98,7 @@ class DrainageBasin:
             pandas.Series: Hypsometric curve expressed as fraction of area
                            below a certain elevation.
         """
-        curve = self.raster_distribution(self.dem.elevation,
-                                         bins=bins, **kwargs)
+        curve = raster_distribution(self.dem.elevation, bins=bins, **kwargs)
         self.hypsometric_curve = curve.cumsum()
         return curve
 
@@ -111,91 +113,114 @@ class DrainageBasin:
         Returns:
             (float): fraction of area below given elevation
         """
-        self.compute_hypsometry(**kwargs)
+        if len(self.hypsometric_curve) == 0:
+            print('Computing hypsometric curve ...')
+            self.compute_hypsometry(**kwargs)
         curve = self.hypsometric_curve
-        if height < curve.min():
+        if height < curve.index.min():
             return 0
-        if height > curve.max():
+        if height > curve.index.max():
             return 1
-        else:
-            interp_func = interp1d(curve.index, curve)
-            return interp_func(height)
+        interp_func = interp1d(curve.index.values, curve.values)
+        return interp_func(height).item()
 
-    def compute_slope(self, open_rasterio_kwargs={},
-                      gdaldem_kwargs={}
-                      ):
+    def process_dem(self, **kwargs):
         """
-        Computes slope raster from DEM using standard gdal routines
-
-        Args:
-            gdaldem_kwargs (dict, optional):
-                Arguments for gdal DEMProcessing algorithm. Defaults to {}.
-            open_rasterio_kwargs (dict, optional):
-                Arguments for rioxarray open rasterio function. Defaults to {}.
+        Compute hypsometric curve, slope and aspect. Then compute DEM
+        derived propeties for the basin and save in the params dataframe.
 
         Returns:
-            xarray.DataArray: DEM derived slopes in m/m
+            self: updated class
         """
-        args = ' '.join([f'-{i} {j}' for i, j in gdaldem_kwargs.items()])
-        psep = get_psep()
-        iname = self.dem.elevation.encoding['source']
-        oname = self.dem.elevation.encoding['source'].split(psep)
-        oname = f'{psep}'.join(oname[:-1])+f'{psep}SLOPE_'+oname[-1]
-        gdal.DEMProcessing(oname, iname, 'slope',
-                           computeEdges=True,
-                           slopeFormat='percent',
-                           **gdaldem_kwargs)
-
-        # command = 'gdaldem slope {} {} {}'
-        # command = command.format(iname, oname, args)
-        # out = os.popen(command)
         try:
-            slope = rxr.open_rasterio(
-                oname, masked=True, **open_rasterio_kwargs)
-            slope = slope.squeeze().to_dataset(name='slope')
-            slope = slope.where(slope != -9999)/100
+            curve = self.compute_hypsometry()
+            slope = self.compute_gdaldem('slope',
+                                         computeEdges=True,
+                                         slopeFormat='percent',
+                                         open_rasterio_kwargs={**kwargs})
+            aspect = self.compute_gdaldem('aspect',
+                                          computeEdges=True,
+                                          open_rasterio_kwargs={**kwargs})
+            self.dem = xr.merge([self.dem, slope.copy()/100, aspect.copy()])
+            self.dem.attrs = {'standard_name': 'terrain model',
+                              'hypsometry_x': [f'{i:.2f}' for i in curve.index],
+                              'hypsometry_y': [f'{j:3f}' for j in curve.values]}
+            # DEM derived params
+            terrain_params = basin_terrain_params(self.fid, self.dem)
         except Exception as e:
-            raise RuntimeError(f'Error: {e}')
-        return slope
+            terrain_params = pd.DataFrame([], index=[self.fid])
+            print('PostProcess DEM Error:', e, self.fid)
+        self.params = pd.concat([self.params, terrain_params], axis=1)
+        return self
 
-    def compute_aspect(self, open_rasterio_kwargs={},
-                       gdaldem_kwargs={}):
+    def process_geography(self):
         """
-        Computes aspect raster from DEM using standard gdal routines
-
-        Args:
-            gdaldem_kwargs (dict, optional):
-                Arguments for gdal DEMProcessing algorithm. Defaults to {}.
-            open_rasterio_kwargs (dict, optional):
-                Arguments for rioxarray open rasterio function. Defaults to {}.
+        Compute geographical parameters of the basin
 
         Returns:
-            xarray.DataArray: DEM derived aspect in degrees
+            self: updated class
         """
-        args = ' '.join([f'-{i} {j}' for i, j in gdaldem_kwargs.items()])
-        psep = get_psep()
-        iname = self.dem.elevation.encoding['source']
-        oname = self.dem.elevation.encoding['source'].split(psep)
-        oname = f'{psep}'.join(oname[:-1])+f'{psep}ASPECT_'+oname[-1]
-        gdal.DEMProcessing(oname, iname, 'aspect', computeEdges=True,
-                           **gdaldem_kwargs)
-        # command = 'gdaldem aspect {} {} {}'
-        # command = command.format(iname, oname, args)
-        # out = os.popen(command)
-
         try:
-            aspect = rxr.open_rasterio(
-                oname, masked=True, **open_rasterio_kwargs)
-            aspect = aspect.squeeze().to_dataset(name='aspect')
-            aspect = aspect.where(aspect != -9999)
+            geo_params = basin_geographical_params(self.fid, self.wgeometry)
         except Exception as e:
-            raise RuntimeError(f'Error: {e}')
-        return aspect
+            geo_params = pd.DataFrame([], index=[self.fid])
+            print('Geographical Parameters Error:', e, self.fid)
+        self.params = pd.concat([self.params, geo_params], axis=1)
+        return self
+
+    def process_river_network(self, **kwargs):
+        """
+        Compute river network properties
+
+        Returns:
+            self: updated class
+        """
+        try:
+            mainriver = main_river(self.rgeometry, **kwargs)
+            mriverlen = self.rgeometry.loc[mainriver.index].length.sum()/1e3
+            if mriverlen.item() != 0:
+                mriverlen = mriverlen.item()
+            else:
+                mriverlen = np.nan
+            self.params['mriverlen_km'] = mriverlen
+            rhod = self.rgeometry.length.sum()/self.params['area_km2']/1e3
+            Kf = self.params['area_km2']/(self.params['mriverlen_km']**2)
+            self.params['rhod_1'] = rhod
+            self.params['Kf_1'] = Kf
+        except Exception as e:
+            print('Flow derived properties Error:', e, self.fid)
+        return self
+
+    def process_lulc(self):
+        """
+        Computes distributions of lulc rasters (% of the basin with the
+        X land cover class)
+
+        Returns:
+            counts: Percentage of the basin with the X property in each
+                    categorical raster.
+        """
+        try:
+            if len(self.lulc) != 0:
+                counts = []
+                for raster in self.lulc:
+                    count = raster.to_series().value_counts()
+                    count = count/count.sum()
+                    count.name = self.fid
+                    count.index = [f'f{raster.name}_{i}' for i in count.index]
+                    counts.append(count)
+                counts = pd.DataFrame(pd.concat(counts)).T
+            else:
+                counts = pd.DataFrame([], index=[self.fid])
+
+        except Exception as e:
+            counts = pd.DataFrame([], index=[self.fid])
+            print('LULC rasters Error:', e, self.fid)
+        return counts
 
     def compute_params(self,
                        main_river_kwargs={},
-                       slope_gdal_kwargs={},
-                       aspect_gdal_kwargs={}):
+                       gdal_kwargs={}):
         """
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
@@ -210,11 +235,8 @@ class DrainageBasin:
             main_river_kwargs (dict, optional): 
                 Additional arguments for the main river finding routine.
                 Defaults to {}. Details in src.geomorphology.main_river routine
-            slope_gdal_kwargs (dict, optional): 
+            gdal_kwargs (dict, optional): 
                 Additional arguments for the slope computing function.
-                Defaults to {}.
-            aspect_gdal_kwargs (dict, optional): 
-                Additional arguments for the aspect computing function.
                 Defaults to {}.
 
         Returns:
@@ -224,65 +246,18 @@ class DrainageBasin:
             self.params = pd.DataFrame([], index=[self.fid])
 
         # Compute slope and aspect. Update dem property
-        try:
-            curve = self.compute_hypsometry()
-            slope = self.compute_slope(**slope_gdal_kwargs)
-            aspect = self.compute_aspect(**aspect_gdal_kwargs)
-            self.dem = xr.merge([self.dem, slope.copy(), aspect.copy()])
-            self.dem.attrs = {'standard_name': 'terrain model',
-                              'hypsometry_x': [f'{i:.2f}' for i in curve.index],
-                              'hypsometry_y': [f'{j:3f}' for j in curve.values]}
-            # DEM derived params
-            terrain_params = basin_terrain_params(self.fid, self.dem)
-        except Exception as e:
-            terrain_params = pd.DataFrame([], index=[self.fid])
-            print('PostProcess DEM Error:', e)
+        self.process_dem(masked=True, **gdal_kwargs)
 
         # Geographical parameters
-        try:
-            geo_params = basin_geographical_params(self.fid, self.wgeometry)
-        except Exception as e:
-            geo_params = pd.DataFrame([], index=[self.fid])
-            print('Geographical Parameters Error:', e)
+        self.process_geography()
 
         # Flow derived params
-        try:
-            mainriver = main_river(self.rgeometry, **main_river_kwargs)
-            mriverlen = self.rgeometry.loc[mainriver.index].length.sum()/1e3
-            if mriverlen.item() != 0:
-                mriverlen = mriverlen.item()
-            else:
-                mriverlen = np.nan
-            self.params['mriverlen_km'] = mriverlen
-            rhod = self.rgeometry.length.sum()/geo_params['area_km2']/1e3
-            Kf = geo_params['area_km2']/(self.params['mriverlen_km']**2)
-            self.params['rhod_1'] = rhod
-            self.params['Kf_1'] = Kf
-        except Exception as e:
-            print('Flow derived properties Error:', e)
+        self.process_river_network(**main_river_kwargs)
 
         # Auxiliary raster distributions
-        try:
-            if len(self.aux_rasters) != 0:
-                counts = []
-                for raster in self.aux_rasters:
-                    count = raster.to_series().value_counts()
-                    count = count/count.sum()
-                    count.name = self.fid
-                    count.index = [f'f{raster.name}_{i}' for i in count.index]
-                    counts.append(count)
-                counts = pd.DataFrame(pd.concat(counts)).T
-            else:
-                counts = pd.DataFrame([], index=[self.fid])
+        counts = self.process_lulc()
 
-        except Exception as e:
-            counts = pd.DataFrame([], index=[self.fid])
-            print('Auxiliary rasters Error:', e)
-
-        self.params = pd.concat([geo_params,
-                                 terrain_params,
-                                 self.params], axis=1)
         self.params = pd.concat([self.params.T, counts.T],
-                                keys=['geoparams', 'aux_rasters'])
+                                keys=['geoparams', 'lulc'])
 
         return self

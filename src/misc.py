@@ -10,11 +10,18 @@
 
 import os
 import pandas as pd
+import numpy as np
 
 # ---------------------------------------------------------------------------- #
 
 
 def get_psep():
+    """
+    Return path separator for the current os
+
+    Returns:
+        (str): path separator
+    """
     if os.name == 'nt':
         psep = '\\'
     else:
@@ -54,3 +61,24 @@ def to_numeric(obj):
         return pd.to_numeric(obj)
     except:
         return obj
+
+
+def raster_distribution(raster, **kwargs):
+    """
+    Given a raster this function computes the histogram
+
+    Args:
+        raster (xarray.Dataset): raster
+
+    Returns:
+        (pandas.Series): Histogram with data in index and pdf in values
+    """
+    total_pixels = raster.size
+    total_pixels = total_pixels-np.isnan(raster).sum()
+    total_pixels = total_pixels.item()
+
+    values = raster.squeeze().values.flatten()
+    values = values[~np.isnan(values)]
+    dist, values = np.histogram(values, **kwargs)
+    dist, values = dist/total_pixels, 0.5*(values[:-1]+values[1:])
+    return pd.Series(dist, index=values, name=f'{raster.name}_dist')

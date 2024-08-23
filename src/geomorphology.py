@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import geopandas as gpd
+from osgeo import gdal
 from shapely.geometry import Point
 
 # ------------------------ Geomorphological properties ----------------------- #
@@ -55,6 +56,23 @@ def main_river(river_network, node_a='NODE_A', node_b='NODE_B', length='LENGTH')
 
 
 def basin_geographical_params(fid, basin):
+    """
+    Given a basin id and a basin polygon as a geopandas object 
+    this function computes the "geographical" or vector properties of
+    the basin (i.e centroid coordinates, area, perimeter and outlet to
+    centroid length.)
+
+    Args:
+        fid (_type_): basin identifier
+        basin (geopandas.GeoDataFrame): basin polygon
+
+    Raises:
+        RuntimeError: If the basin doesnt have the drainage point in the
+            attribute table. (outlet_x and outlet_y columns)
+
+    Returns:
+        pandas.DataFrame: table with parameters
+    """
     if not (('outlet_x' in basin.columns) or ('outlet_y' in basin.columns)):
         error = 'Basin attribute table must have'
         error = error+' an "outlet_x" and "outlet_y" columns'
@@ -78,14 +96,31 @@ def basin_geographical_params(fid, basin):
 
 
 def basin_terrain_params(fid, dem):
+    """
+    From an identifier (fid) and a digital elevation model (DEM) loaded
+    as an xarray object, this function computes the following properties:
+    1) Minimum, mean, median and maximum height
+    2) Difference between maximum and minimum height
+    3) Difference between mean and minimum height
+    4) Mean slope if slope is in the dataset
+    5) % of the terrain in each of the 8 directions (N,S,W,E,SW,SE,NW,NE)
+
+    Args:
+        fid (_type_): basin identifier
+        dem (xarray.Dataset): Digital elevation model
+
+    Returns:
+        pandas.DataFrame: table with terrain-derived parameters
+    """
     if 'slope' not in dem.variables:
-        raise RuntimeError(
-            'DEM must have an elevation and slope variable!')
+        raise RuntimeError('Dataset must have a "slope" variable')
+
+    if 'aspect' not in dem.variables:
+        raise RuntimeError('Dataset must have an "aspect" variable')
 
     params = pd.DataFrame([], index=[fid])
 
-    # Slope and height parameters
-    params['meanslope_1'] = dem.slope.mean().item()
+    # Height parameters
     params['hmin_m'] = dem.elevation.min().item()
     params['hmax_m'] = dem.elevation.max().item()
     params['hmean_m'] = dem.elevation.mean().item()
@@ -93,38 +128,47 @@ def basin_terrain_params(fid, dem):
     params['deltaH_m'] = params['hmax_m']-params['hmin_m']
     params['deltaHm_m'] = params['hmean_m']-params['hmin_m']
 
-    # Direction of exposure
-    direction_ranges = {
-        'N_exposure_%': (337.5, 22.5),
-        'S_exposure_%': (157.5, 202.5),
-        'E_exposure_%': (67.5, 112.5),
-        'W_exposure_%': (247.5, 292.5),
-        'NE_exposure_%': (22.5, 67.5),
-        'SE_exposure_%': (112.5, 157.5),
-        'SW_exposure_%': (202.5, 247.5),
-        'NW_exposure_%': (292.5, 337.5),
-    }
+    # Slope parameters
+    if 'slope' in dem.variables:
+        params['meanslope_1'] = dem.slope.mean().item()
 
-    # Calculate percentages for each direction
-    tot_pixels = np.size(dem.aspect.values)-np.isnan(dem.aspect.values).sum()
-    dir_perc = {}
+    # Exposure/Aspect parameters
+    if 'aspect' in dem.variables:
+        # Direction of exposure
+        direction_ranges = {
+            'N_exposure_%': (337.5, 22.5),
+            'S_exposure_%': (157.5, 202.5),
+            'E_exposure_%': (67.5, 112.5),
+            'W_exposure_%': (247.5, 292.5),
+            'NE_exposure_%': (22.5, 67.5),
+            'SE_exposure_%': (112.5, 157.5),
+            'SW_exposure_%': (202.5, 247.5),
+            'NW_exposure_%': (292.5, 337.5),
+        }
 
-    for direction, (min_angle, max_angle) in direction_ranges.items():
-        if min_angle > max_angle:
-            exposure = np.logical_or(
-                (dem.aspect.values >= min_angle) & (dem.aspect.values <= 360),
-                (dem.aspect.values >= 0) & (dem.aspect.values <= max_angle)
-            )
-        else:
-            exposure = (dem.aspect.values >= min_angle) & (
-                dem.aspect.values <= max_angle)
+        # Calculate percentages for each direction
+        tot_pixels = np.size(dem.aspect.values) - \
+            np.isnan(dem.aspect.values).sum()
+        dir_perc = {}
 
-        direction_pixels = np.sum(exposure)
-        dir_perc[direction] = (direction_pixels/tot_pixels)*100
-    dir_perc = pd.DataFrame(dir_perc.values(),
-                            index=dir_perc.keys(),
-                            columns=[fid]).T
-    return pd.concat([params, dir_perc], axis=1)
+        for direction, (min_angle, max_angle) in direction_ranges.items():
+            if min_angle > max_angle:
+                exposure = np.logical_or(
+                    (dem.aspect.values >= min_angle) & (
+                        dem.aspect.values <= 360),
+                    (dem.aspect.values >= 0) & (dem.aspect.values <= max_angle)
+                )
+            else:
+                exposure = (dem.aspect.values >= min_angle) & (
+                    dem.aspect.values <= max_angle)
+
+            direction_pixels = np.sum(exposure)
+            dir_perc[direction] = (direction_pixels/tot_pixels)*100
+        dir_perc = pd.DataFrame(dir_perc.values(),
+                                index=dir_perc.keys(),
+                                columns=[fid]).T
+        params = pd.concat([params, dir_perc], axis=1)
+    return params
 
 # -------------------- Concentration time for rural basins ------------------- #
 
