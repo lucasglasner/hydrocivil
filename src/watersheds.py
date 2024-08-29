@@ -26,14 +26,14 @@ from src.misc import get_psep, raster_distribution
 
 
 class RiverBasin(object):
-    def __init__(self, fid, bgeometry, rgeometry, dem, lulc=[]):
+    def __init__(self, fid, basin, rivers, dem, lulc=[]):
         """
         Drainage Basin class constructor
 
         Args:
             fid (str): Basin identifier
-            bgeometry (GeoDataFrame): Watershed polygon
-            rgeometry (GeoDataFrame): River network segments
+            basin (GeoDataFrame): Watershed polygon
+            rivers (GeoDataFrame): River network segments
             dem (xarray.DataArray): Digital elevation model
             lulc (list): list of additional categorical land cover rasters.
 
@@ -42,10 +42,10 @@ class RiverBasin(object):
                 cartographic projection.
         """
         prj_error = '{} must be in a projected (UTM) crs !'
-        if not bgeometry.crs.is_projected:
+        if not basin.crs.is_projected:
             error = prj_error.format('Watershed geometry')
             raise RuntimeError(error)
-        if not rgeometry.crs.is_projected:
+        if not rivers.crs.is_projected:
             error = prj_error.format('Rivers geometry')
             raise RuntimeError(error)
         if not dem.rio.crs.is_projected:
@@ -60,9 +60,9 @@ class RiverBasin(object):
         self.fid = fid
 
         # Vectors
-        self.bgeometry = bgeometry
-        self.rgeometry = rgeometry
-        self.rgeometry_main = pd.Series([])
+        self.basin = basin
+        self.rivers = rivers
+        self.rivers_main = pd.Series([])
 
         # Terrain
         self.dem = dem.rio.write_nodata(-9999).squeeze()
@@ -84,7 +84,7 @@ class RiverBasin(object):
         text = text+f'Parameters:\n\n{self.params.head(5)}'
         return text
 
-    def compute_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
+    def process_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
         """
         Accessor to gdaldem command line utility.
 
@@ -104,7 +104,7 @@ class RiverBasin(object):
         field = field.squeeze().to_dataset(name=varname)
         return field
 
-    def compute_hypsometric_curve(self, bins='auto', **kwargs):
+    def process_hypsometric_curve(self, bins='auto', **kwargs):
         """
         Based on terrain, compute hypsometric curve of the basin
 
@@ -129,7 +129,7 @@ class RiverBasin(object):
         """
         if len(self.hypsometric_curve) == 0:
             warnings.warn('Computing hypsometric curve ...')
-            self.compute_hypsometric_curve(**kwargs)
+            self.process_hypsometric_curve(**kwargs)
         curve = self.hypsometric_curve
         if height < curve.index.min():
             return 0
@@ -146,7 +146,7 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            geo_params = basin_geographical_params(self.fid, self.bgeometry)
+            geo_params = basin_geographical_params(self.fid, self.basin)
         except Exception as e:
             geo_params = pd.DataFrame([], index=[self.fid])
             warnings.warn('Geographical Parameters Error:', e, self.fid)
@@ -162,12 +162,12 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            curve = self.compute_hypsometric_curve()
-            slope = self.compute_gdaldem('slope',
+            curve = self.process_hypsometric_curve()
+            slope = self.process_gdaldem('slope',
                                          computeEdges=True,
                                          slopeFormat='percent',
                                          open_rasterio_kwargs={**kwargs})
-            aspect = self.compute_gdaldem('aspect',
+            aspect = self.process_gdaldem('aspect',
                                           computeEdges=True,
                                           open_rasterio_kwargs={**kwargs})
             self.dem = xr.merge([self.dem, slope.copy()/100, aspect.copy()])
@@ -190,15 +190,15 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            mainriver = main_river(self.rgeometry, **kwargs)
-            self.rgeometry_main = self.rgeometry.loc[mainriver.index]
-            mriverlen = self.rgeometry_main.length.sum()/1e3
+            mainriver = main_river(self.rivers, **kwargs)
+            self.rivers_main = self.rivers.loc[mainriver.index]
+            mriverlen = self.rivers_main.length.sum()/1e3
             if mriverlen.item() != 0:
                 mriverlen = mriverlen.item()
             else:
                 mriverlen = np.nan
             self.params['mriverlen_km'] = mriverlen
-            rhod = self.rgeometry.length.sum()/self.params['area_km2']/1e3
+            rhod = self.rivers.length.sum()/self.params['area_km2']/1e3
             Kf = self.params['area_km2']/(self.params['mriverlen_km']**2)
             self.params['rhod_1'] = rhod
             self.params['Kf_1'] = Kf
@@ -233,9 +233,9 @@ class RiverBasin(object):
             warnings.warn('LULC rasters Error:', e, self.fid)
         return counts
 
-    def fill_params(self,
-                    main_river_kwargs={},
-                    gdal_kwargs={}):
+    def compute_params(self,
+                       main_river_kwargs={},
+                       gdal_kwargs={}):
         """
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
