@@ -14,6 +14,8 @@ import pandas as pd
 import scipy.signal as sg
 from scipy.interpolate import interp1d
 
+from src.geomorphology import tc_SCS
+
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
 def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
@@ -56,36 +58,19 @@ def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
             time step (hours)))
 
     """
-    def SCS_lagtime(L, CN, S):
-        """
-        This functions returns the lagtime of the SCS unit hydrograph.
-
-        Args:
-            L (float): Main channel length (km)
-            CN (float): Curve number (dimensionless)
-            S (float): Mean slope (m/m)
-
-        Returns:
-            lagtime (float): basin lagtime (hours)
-        """
-        a = (L*1e3)**0.8*(2540-22.86*CN)**0.7
-        b = (14104*CN**0.7*S**0.5)
-        lagtime = a/b
-        return lagtime
     # Unit hydrograph shape
     t_shape = [np.arange(0, 2+0.1, 0.1),
                np.arange(2.2, 4+0.2, 0.2),
                np.arange(4.5, 5+0.5, 0.5)]
     t_shape = np.hstack(t_shape)
 
-    q_shape = np.array(
-        [0, 0.03, 0.1, 0.19, 0.31, 0.47, 0.66, 0.82, 0.93, 0.99, 1,
-            0.99, 0.93, 0.86, 0.78, 0.68, 0.56, 0.46, 0.39, 0.33, 0.28, 0.207,
-         0.147, 0.107, 0.077, 0.055, 0.040, 0.029, 0.021, 0.015, 0.011,
-         0.005, 0])
+    q_shape = [0.000, 0.030, 0.100, 0.190, 0.310, 0.470, 0.660, 0.820, 0.930,
+               0.990, 1.000, 0.990, 0.930, 0.860, 0.780, 0.680, 0.560, 0.460,
+               0.390, 0.330, 0.280, 0.207, 0.147, 0.107, 0.077, 0.055, 0.040,
+               0.029, 0.021, 0.015, 0.011, 0.005, 0.000]
+    q_shape = np.array(q_shape)
     # Unit hydrograph paremeters
-    tL = SCS_lagtime(mriverlen_km, curvenumber_1, meanslope_1)
-    tp = tL+tstep/2
+    tp = (tc_SCS(mriverlen_km, meanslope_1, curvenumber_1)/60)*0.6+tstep/2
     tb = 2.67*tp
     qp = 0.208*area_km2/tp
     uh = pd.Series(qp*q_shape, index=t_shape*tp)
@@ -167,12 +152,12 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
                 Arteaga & Benitez seminal work. 
         """
         Linsley_parameters = {
-            'Ct': [0.323, 0.584,	1.351, 0.386],
-            'nt': [0.422,	0.327, 0.237, 0.397],
+            'Ct': [0.323,   0.584,   1.351,   0.386],
+            'nt': [0.422,	0.327,   0.237,   0.397],
             'Cp': [144.141, 522.514, 172.775, 355.2],
-            'np': [-0.796, -1.511, -0.835, -1.22],
-            'Cb': [5.377,	1.822,	5.428,	2.7],
-            'nb': [0.805,	1.412,	0.717,	1.104]
+            'np': [-0.796, -1.511,  -0.835,  -1.22],
+            'Cb': [5.377,	1.822,	 5.428,	  2.7],
+            'nb': [0.805,	1.412,	 0.717,	  1.104]
         }
         Linsley_parameters = pd.DataFrame(Linsley_parameters,
                                           index=['I', 'II', 'III', 'IV'])

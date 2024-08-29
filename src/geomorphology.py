@@ -127,7 +127,7 @@ def terrain_exposure(aspect, fid=0):
         if min_angle > max_angle:
             exposure = np.logical_or(
                 (aspect.values >= min_angle) & (
-                    aspect.values <= 360),
+                    aspect.valuwes <= 360),
                 (aspect.values >= 0) & (aspect.values <= max_angle)
             )
         else:
@@ -192,7 +192,7 @@ def basin_terrain_params(fid, dem):
 
 def tc_SCS(basin_mriverlen_km,
            basin_meanslope_1,
-           curve_number_1):
+           curvenumber_1):
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -204,42 +204,18 @@ def tc_SCS(basin_mriverlen_km,
     Args:
         basin_mriverlen_km (float): Main river length in (km)
         basin_meanslope_1 (float): Basin mean slope in m/m
-        curve_number_1 (float): Basin curve number (dimensionless)
+        curvenumber_1 (float): Basin curve number (dimensionless)
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
     mriverlen_ft = 3280.84*basin_mriverlen_km
-    potentialstorage_inch = 1000/curve_number_1-10
+    potentialstorage_inch = 1000/curvenumber_1-10
     slope_perc = basin_meanslope_1*100
     numerator = mriverlen_ft**0.8*((potentialstorage_inch+1) ** 0.7)
     denominator = 1140*slope_perc**0.5
     Tc = numerator/denominator*60  # 60 minutes = 1 hour
     return Tc
-
-
-# def tc_SCS(basin_mriverlen_km,
-#            basin_meanslope_1,
-#            curve_number_1):
-#     """
-#     USA Soil Conservation Service (SCS) method.
-#     Valid for rural basins ¿?.
-
-#     Reference:
-#         ???
-
-#     Args:
-#         basin_mriverlen_km (float): Main river length in (km)
-#         basin_meanslope_1 (float): Basin mean slope in m/m
-#         curve_number_1 (float): Basin curve number (dimensionless)
-
-#     Returns:
-#         Tc (float): Concentration time (minutes)
-#     """
-#     a = ((1000/curve_number_1)-9)**0.7
-#     b = basin_mriverlen_km**0.8/(basin_meanslope_1*100)**0.5
-#     Tc = 3.42*a*b
-#     return Tc
 
 
 def tc_kirpich(basin_mriverlen_km,
