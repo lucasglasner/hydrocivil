@@ -12,12 +12,15 @@ import warnings
 import numpy as np
 import pandas as pd
 import scipy.signal as sg
+from math import gamma
 from scipy.interpolate import interp1d
 
 from src.geomorphology import tc_SCS
 
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
+
+
 def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
             tstep, interp_kwargs={'kind': 'quadratic'}):
     """
@@ -88,6 +91,120 @@ def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
     uh = uh/volume
     params = (qp, tp, tb, tstep)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tbase', 'tstep'])
+    uh.name, params.name = 'SCS_m3 s-1 mm-1', 'Params_SCS'
+    return uh, params
+
+
+def tstep_correction(tstep, tp):
+    """
+    This functions checks if the selected timestep can be used
+    as the unit hydrograph time resolution (unitary time) for DGA methods.
+
+    Args:
+        tstep (float): Desired time step in hours
+        tp (float): Raw unit hydrograph peak time (tu) in hours.
+
+    Raises:
+        RuntimeError: If selected tstep exceeds a 10% change of
+            unit hydrograph storm duration/peak time.
+
+    Returns:
+        float: Fixed timestep and peak time in hours
+    """
+    tu = tp/5.5
+    if tstep > tu*0.5:
+        warnings.warn(f'tstep exceeds tu/2, changing tstep to tu = tp/5.5')
+        return tu, tp
+    if (tstep < tu+0.1) and (tstep > tu-0.1):
+        return tstep, tp
+    else:
+        tp = tp+0.25*(tstep-tu)
+        return tstep, tp
+
+
+def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
+             interp_kwargs={'kind': 'quadratic'}):
+    """ 
+    Gray method for Synthethic Unit Hydrograph (SUH). This method assumes a SUH
+    that follows the gamma function, which assumes that the basin is the same
+    as infinite series of lineal reservoirs. 
+
+    Peak time and gamma_parameter (lowercase) parameters are computed using 
+    Chilean basins. The method just like the Arteaga & Benitez SUH is only 
+    valid for the III to the X political regions. 
+
+    References:
+    Manual de calculo de crecidas y caudales minimos en cuencas sin 
+    informacion fluviometrica. Republica de Chile, Ministerio de Obras
+    Publicas (MOP), Dirección General de Aguas (DGA) (1995). 
+
+    Bras, R. L. (1990). Hydrology: an introduction to hydrologic science.
+
+    ???
+
+
+    Args:
+        area_km2 (float): Basin area (km2)
+        mriverlen_km (float): Main channel length (km)
+        meanslope_1 (float): Basin mean slope (m/m)
+        tstep (float): Unit hydrograph target unitary time (tu) in hours. 
+        interp_kwargs (dict): args to scipy.interpolation.interp1d function.
+    """
+    def Gray_peaktime(L, S):
+        """
+        Args:
+            L (float): Main channel length (km)
+            S (float): Basin mean slope (m/m)
+
+        Returns:
+            (float): Method suggestion for the SUH peak time
+        """
+        a = (np.sqrt(S) / L)**0.155
+        tp = 192.5/(2.94*a-1)
+        return tp/60
+
+    def Gray_gamma_param(L, S):
+        """
+        Args:
+            L (float): Main channel length (km)
+            S (float): Basin mean slope (m/m)
+
+        Returns:
+            (float): method shape function parameter
+        """
+        a = (np.sqrt(S) / L)**0.155
+        y = 2.68/(1-0.34*a)
+        return y
+
+    y = Gray_gamma_param(mriverlen_km, meanslope_1)
+    tp = Gray_peaktime(mriverlen_km, meanslope_1)
+    tstep, tp = tstep_correction(tstep, tp)
+    # tstep = tp/5.5
+
+    t_shape = np.arange(0, 10+0.05, 0.05)
+    q_shape = 25*y**(y+1)*np.exp(-y*t_shape)*(t_shape)**(y)/gamma(y+1)
+
+    uh = pd.Series(q_shape, index=t_shape*tp)
+    uh = uh*area_km2/360/(0.25*tp)
+    mask = uh < 1e-4
+    mask[0] = False
+    uh = uh.where(~mask).dropna()
+    uh.loc[uh.index[-1]+tstep] = 0
+
+    # Interpolate to new time resolution
+    ntime = np.arange(uh.index[0], uh.index[-1]+tstep, tstep)
+    f = interp1d(uh.index, uh.values,
+                 fill_value='extrapolate', **interp_kwargs)
+    uh = f(ntime)
+    uh = pd.Series(uh, index=ntime)
+    uh = uh.where(uh > 0).fillna(0)
+
+    # Ensure that the unit hydrograph acummulates a volume of 1mm
+    volume = np.trapz(uh, uh.index*3600)/1e6/area_km2*1e3
+    uh = uh/volume
+    params = (uh.max(), tp, tstep)
+    params = pd.Series(params, index=['qpeak', 'tpeak', 'tstep'])
+    uh.name, params.name = 'Gray_m3 s-1 mm-1', 'Params_Gray'
     return uh, params
 
 
@@ -163,45 +280,18 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
                                           index=['I', 'II', 'III', 'IV'])
         return Linsley_parameters
 
-    def tstep_correction(tstep, tu):
-        """
-        This functions checks if the selected timestep can be used
-        as the unit hydrograph time resolution (unitary time). 
-
-        Args:
-            tstep (float): Desired time step in hours
-            tu (float): Raw unit hydrograph unitary time (tu) in hours. 
-
-        Raises:
-            RuntimeError: If selected tstep exceeds a 10% change of 
-                unit hydrograph storm duration/unitary time. 
-
-        Returns:
-            float: Fixed timestep in hours
-        """
-        tR = np.round(tu/tstep, 1)*tstep
-        if ~((tR-tu) < 0.1 and (tR-tu) > -0.1):
-            warnings.warn(f'tu: {tR:.3f} - (tR-tu) exceeds 10%, changing tstep\
-                           to tu.')
-        else:
-            tR = tu
-        return tR
-
     coeffs = SUH_ArteagaBenitez_Coefficients().loc[zone]
     tp = coeffs['Ct']
     tp = tp * (mriverlen_km*out2centroidlen_km /
                np.sqrt(meanslope_1))**coeffs['nt']
-    tu = tp/5.5
-    if tu > tstep*1.1:
-        # raise RuntimeError(f'tu = {tu:.3f} cant exceed 1.1 * (timestep)!!')
-        tstep = tu
 
     # Adjust storm duration to the UH timestep
-    tR = tstep_correction(tstep, tu)
-    tpR = tp+(tR-tu)/4
+    # tstep, tpR = tstep_correction(tstep, tp)
+    tpR = tp
+    tstep = tp/5.5
+    # tpR = tp+(tR-tu)/4
     qpR = coeffs['Cp']*tpR**(coeffs['np'])
     tbR = coeffs['Cb']*tpR**(coeffs['nb'])
-    tuR = tR
 
     # Unit hydrograph shape
     t_shape = np.array([0, 0.3, 0.5, 0.6, 0.75, 1, 1.3, 1.5, 1.8, 2.3, 2.7, 3])
@@ -212,7 +302,7 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
     uh = pd.Series(uh, index=np.array(t_shape)*tpR)
 
     # Interpolate to new time resolution
-    ntime = np.arange(uh.index[0], uh.index[-1]+tuR, tuR)
+    ntime = np.arange(uh.index[0], uh.index[-1] + tstep, tstep)
     f = interp1d(uh.index, uh.values,
                  fill_value='extrapolate', **interp_kwargs)
     uh = f(ntime)
@@ -222,9 +312,9 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
     # Ensure that the unit hydrograph acummulates a volume of 1mm
     volume = np.trapz(uh, uh.index*3600)/1e6  # mm
     uh = uh/volume
-    params = (qpR/volume*area_km2/1e3, tpR, tbR, tuR)
+    params = (qpR/volume*area_km2/1e3, tpR, tbR, tstep)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tbase', 'tstep'])
-
+    uh.name, params.name = 'A&B_m3s-1 mm-1', 'Params_A&B'
     return uh*area_km2/1e3, params
 
 # -------------------------------- MAIN CLASS -------------------------------- #
@@ -245,63 +335,22 @@ class SynthUnitHydro(object):
         self.basin_params = pd.Series(basin_params)
         self.timestep = timestep
         self.UnitHydro = None
+        self.S_UnitHydro = None
         self.UnitHydroParams = None
 
-    def compute(self, interp_kwargs={'kind': 'quadratic'}):
+    def UH_cumulative(self):
         """
-        Trigger calculation of desired unit hydrograph
-
-        Raises:
-            ValueError: If give the class a wrong UH kind.
-
-        Returns:
-            (tuple): Unit hydrograph values and parameters.
-        """
-        if self.method == 'SCS':
-            params = ['area_km2', 'mriverlen_km',
-                      'meanslope_1', 'curvenumber_1']
-            params = self.basin_params[params]
-            uh, uh_params = SUH_SCS(tstep=self.timestep,
-                                    interp_kwargs=interp_kwargs,
-                                    **params)
-            uh.name, uh_params.name = 'SCS_m3 s-1 mm-1', 'Params_SCS'
-
-        elif self.method == 'Arteaga&Benitez':
-            params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
-                      'meanslope_1', 'zone']
-            params = self.basin_params[params]
-            uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
-                                               interp_kwargs=interp_kwargs,
-                                               **params)
-            uh.name, uh_params.name = 'A&B_m3s-1 mm-1', 'Params_A&B'
-
-        else:
-            raise ValueError(f'method="{self.method}" not valid!')
-
-        self.UnitHydro, self.UnitHydroParams = uh, uh_params
-        self.timestep = uh_params.tstep
-        return self.UnitHydro, self.UnitHydroParams
-
-    def UH_cumulative(self, duration):
-        """
-        Given a storm duration this function computes the S-Unit Hydrograph
-        which is independent of storm duration and can be used for computing
-        the UH of a different duration.
-
-        Args:
-            duration (float): Unit hydrograph duration.
+        This function computes the S-Unit Hydrograph which is independent
+        of storm duration and can be used for computing the UH of a
+        different duration.
 
         Returns:
             (pandas.Series): S-Unit Hydrograph. 
         """
-        tstep = np.diff(self.UnitHydro.index)[0]
-        shifts = int(duration/tstep)
-        n_repeats = int((len(self.UnitHydro)/shifts+1))
-        sums = [self.UnitHydro.shift(shifts*i) for i in range(n_repeats)]
-        cumsum = pd.concat(sums, axis=1).sum(axis=1)/duration
-        ntime = np.arange(0, cumsum.index[-1]*2+tstep, tstep)
-        cumsum = cumsum.reindex(ntime).ffill()
-        return cumsum
+        uh = self.UnitHydro
+        sums = [uh.shift(i) for i in range(len(uh)+1)]
+        S_uh = pd.concat(sums, axis=1).sum(axis=1)
+        return S_uh
 
     def convolve(self, rainfall):
         """
@@ -323,3 +372,44 @@ class SynthUnitHydro(object):
             hydrograph = pd.Series(sg.convolve(rainfall, self.UnitHydro))
             hydrograph.index = hydrograph.index*self.timestep
             return hydrograph
+
+    def compute(self, interp_kwargs={'kind': 'quadratic'}):
+        """
+        Trigger calculation of desired unit hydrograph
+
+        Raises:
+            ValueError: If give the class a wrong UH kind.
+
+        Returns:
+            (tuple): Unit hydrograph values and parameters.
+        """
+        if self.method == 'SCS':
+            params = ['area_km2', 'mriverlen_km',
+                      'meanslope_1', 'curvenumber_1']
+            params = self.basin_params[params]
+            uh, uh_params = SUH_SCS(tstep=self.timestep,
+                                    interp_kwargs=interp_kwargs,
+                                    **params)
+
+        elif self.method == 'Arteaga&Benitez':
+            params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
+                      'meanslope_1', 'zone']
+            params = self.basin_params[params]
+            uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
+                                               interp_kwargs=interp_kwargs,
+                                               **params)
+
+        elif self.method == 'Gray':
+            params = ['area_km2', 'mriverlen_km', 'meanslope_1']
+            params = self.basin_params[params]
+            uh, uh_params = SUH_Gray(tstep=self.timestep,
+                                     interp_kwargs=interp_kwargs,
+                                     **params)
+
+        else:
+            raise ValueError(f'method="{self.method}" not valid!')
+
+        self.UnitHydro, self.UnitHydroParams = uh, uh_params
+        self.timestep = uh_params.tstep
+        self.S_UnitHydro = self.UH_cumulative()
+        return self.UnitHydro, self.UnitHydroParams
