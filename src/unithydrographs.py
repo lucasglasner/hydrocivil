@@ -208,6 +208,53 @@ def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
     return uh, params
 
 
+def ArteagaBenitez_zone(region):
+    """
+    Given a Chilean political region as a string, this function returns
+    the corresponding zone of the Arteaga&Benitez 1979 unit hydrograph. 
+
+    References:
+        Manual de calculo de crecidas y caudales minimos en cuencas sin 
+        informacion fluviometrica. Republica de Chile, Ministerio de Obras
+        Publicas (MOP), Dirección General de Aguas (DGA) (1995). 
+
+        Metodo para la determinación de los hidrogramas sintéticos en Chile, 
+        Arteaga F., Benitez A., División de Estudios Hidrológicos, 
+        Empresa Nacional de Electricidad S.A (1985).
+
+
+    Args:
+        region (str): Chilean region as string (e.g RM, V, IV, etc)
+
+    Raises:
+        RuntimeError: If a wrong region is given
+
+    Returns:
+        (str): Method geographical zone:
+            options: "I", "II", "III" or "IV"
+    """
+    if region in ['III', 'IV', 'V', 'RM', 'VI']:
+        return 'I'
+    elif region in ['VII']:
+        return 'II'
+    elif region in ['VIII', 'IX', 'XIV', 'X', 'XVI']:
+        return 'III'
+    elif region in ['II']:
+        return 'IV'
+    elif region in ['XV', 'I']:
+        text = f'Region: {region} not strictly aviable for the method.'
+        text = text+' Using the nreast zone: "IV"'
+        warnings.warn(text)
+        return 'IV'
+    elif region in ['XI', 'XII']:
+        text = f'Region: {region} not strictly aviable for the method.'
+        text = text+' Using the nearest zone: "III"'
+        warnings.warn(text)
+        return 'III'
+    else:
+        raise RuntimeError(f'Region: "{region}" invalid')
+
+
 def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
                        zone, tstep, interp_kwargs={'kind': 'quadratic'}):
     """
@@ -384,8 +431,8 @@ class SynthUnitHydro(object):
             (tuple): Unit hydrograph values and parameters.
         """
         if self.method == 'SCS':
-            params = ['area_km2', 'mriverlen_km',
-                      'meanslope_1', 'curvenumber_1']
+            params = ['area_km2', 'mriverlen_km', 'meanslope_1',
+                      'curvenumber_1']
             params = self.basin_params[params]
             uh, uh_params = SUH_SCS(tstep=self.timestep,
                                     interp_kwargs=interp_kwargs,
@@ -393,7 +440,7 @@ class SynthUnitHydro(object):
 
         elif self.method == 'Arteaga&Benitez':
             params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
-                      'meanslope_1', 'zone']
+                      'meanslope_1']
             params = self.basin_params[params]
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
                                                interp_kwargs=interp_kwargs,

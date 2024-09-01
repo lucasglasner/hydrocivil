@@ -15,6 +15,34 @@ import numpy as np
 # ---------------------------------------------------------------------------- #
 
 
+def chile_region(point, regions):
+    """
+    Given a geopandas point and region/states polygones
+    this function returns the ID of the polygon where the point belongs
+    (as long as an ID column exists in the region polygons)
+    If an ID column doesnt exist in the reigon polygons this function 
+    will return the polygon index.
+
+    Args:
+        point (geopandas.Series): point 
+        regions (geopandas.GeoDataFrame): collection of polygons that
+            represents regions or states.
+
+    Returns:
+        (object): ID of the polygon that contains the point
+    """
+    if 'ID' not in regions.columns:
+        regions['ID'] = regions.index
+
+    point = point.to_crs(regions.crs)
+    mask = []
+    for i in range(len(regions)):
+        geom = regions.geometry.iloc[i]
+        mask.append(point.within(geom))
+    region = regions.iloc[mask, :]['ID']
+    return region.item()
+
+
 def get_psep():
     """
     Return path separator for the current os

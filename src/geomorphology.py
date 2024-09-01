@@ -73,7 +73,7 @@ def basin_geographical_params(fid, basin):
         pandas.DataFrame: table with parameters
     """
     if not (('outlet_x' in basin.columns) or ('outlet_y' in basin.columns)):
-        error = 'Basin attribute table must have'
+        error = 'Basin polyugon attribute table must have'
         error = error+' an "outlet_x" and "outlet_y" columns'
         raise RuntimeError(error)
 
@@ -127,7 +127,7 @@ def terrain_exposure(aspect, fid=0):
         if min_angle > max_angle:
             exposure = np.logical_or(
                 (aspect.values >= min_angle) & (
-                    aspect.valuwes <= 360),
+                    aspect.values <= 360),
                 (aspect.values >= 0) & (aspect.values <= max_angle)
             )
         else:

@@ -233,6 +233,41 @@ class RiverBasin(object):
             warnings.warn('LULC rasters Error:', e, self.fid)
         return counts
 
+    def get_lulc_raster(self, name):
+        """
+        Return a LULC raster from its name
+
+        Args:
+            name (str): raster name
+
+        Returns:
+            xarray.DataArray:
+        """
+        for raster in self.lulc:
+            if raster.name == name:
+                return raster
+
+    def get_lulc_perc(self, name):
+        """
+        This function takes all computations stored in the "lulc" key 
+        of the params dataframe and returns a new pandas object with 
+        the raster value in the index and the percentage of the basin with
+        that value in the pandas values
+
+        Args:
+            name (str): name of the lulc raster to process
+
+        Returns:
+            pandas.Series: Series with raster distribution along the basin
+        """
+        field = self.params.loc['lulc'][self.fid]
+        mask = field.index.map(lambda x: name in x)
+        field = field.loc[mask]
+        values = [v.split(name)[-1].replace('_', '') for v in field.index]
+        field.index = values
+        field.index = field.index.astype(self.get_lulc_raster(name).dtype)
+        return field
+
     def compute_params(self,
                        main_river_kwargs={},
                        gdal_kwargs={}):
