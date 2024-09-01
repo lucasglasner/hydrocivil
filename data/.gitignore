@@ -2,5 +2,7 @@
 !.gitignore
 !params*
 !synthetic_storms.csv
+!raster
+!vector
 !raster/*
 !vector/*
