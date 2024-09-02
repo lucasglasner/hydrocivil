@@ -26,20 +26,15 @@ from src.misc import get_psep, raster_distribution
 
 
 class RiverBasin(object):
-    def __init__(self, fid, basin, rivers, dem, lulc=[]):
+    def tests(self, basin, rivers, dem, cn):
         """
-        Drainage Basin class constructor
-
         Args:
-            fid (str): Basin identifier
-            basin (GeoDataFrame): Watershed polygon
-            rivers (GeoDataFrame): River network segments
-            dem (xarray.DataArray): Digital elevation model
-            lulc (list): list of additional categorical land cover rasters.
-
+            basin (GeoDataFrame): Basin polygon
+            rivers (GeoDataFrame): River network lines
+            dem (xarray.DataArray): Digital elevation model raster
+            cn (xarray.DataArray): Curve number raster
         Raises:
-            RuntimeError: If any of the given spatial data isnt in a projected
-                cartographic projection.
+            RuntimeError: If any dataset isnt in a projected (UTM) crs.
         """
         prj_error = '{} must be in a projected (UTM) crs !'
         if not basin.crs.is_projected:
@@ -51,11 +46,27 @@ class RiverBasin(object):
         if not dem.rio.crs.is_projected:
             error = prj_error.format('DEM raster')
             raise RuntimeError(error)
-        if len(lulc) != 0:
-            for raster in lulc:
-                if not raster.rio.crs.is_projected:
-                    error = prj_error.format(f'LULC {raster.name} raster')
-                    raise RuntimeError(error)
+        if type(cn) != type(None):
+            if not cn.rio.crs.is_projected:
+                error = prj_error.format('Curve Number raster')
+                raise RuntimeError(error)
+
+    def __init__(self, fid, basin, rivers, dem, cn=None):
+        """
+        Drainage Basin class constructor
+
+        Args:
+            fid (str): Basin identifier
+            basin (GeoDataFrame): Watershed polygon
+            rivers (GeoDataFrame): River network segments
+            dem (xarray.DataArray): Digital elevation model
+            cn (xarray.DataArray): Curve Number raster. Defaults to None.
+
+        Raises:
+            RuntimeError: If any of the given spatial data isnt in a projected
+                cartographic projection.
+        """
+        self.tests(basin, rivers, dem, cn)
         # ID
         self.fid = fid
 
@@ -69,10 +80,16 @@ class RiverBasin(object):
         self.dem = self.dem.to_dataset(name='elevation')
         self.dem.encoding = dem.encoding
 
+        # Curve Number
+        if type(cn) != type(None):
+            cn = cn.rio.write_nodata(-9999).squeeze()
+            self.cn = cn
+        else:
+            self.cn = None
+
         # Properties
         self.params = pd.DataFrame([], index=[self.fid])
         self.hypsometric_curve = pd.Series([])
-        self.lulc = lulc
 
     def __repr__(self) -> str:
         """
@@ -83,6 +100,17 @@ class RiverBasin(object):
         text = f'RiverBasin: {self.fid}\n'
         text = text+f'Parameters:\n\n{self.params.head(5)}'
         return text
+
+    def set_parameter(self, index, value):
+        """
+        Simple function to add a new parameter to the basin parameters table
+
+        Args:
+            index (str): parameter name/id or what to put in the table index
+            value (object): value of the new parameter
+        """
+        self.params.loc[index, :] = value
+        return self
 
     def process_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
         """
@@ -206,67 +234,54 @@ class RiverBasin(object):
             warnings.warn('Flow derived properties Error:', e, self.fid)
         return self
 
-    def process_lulc(self):
+    def process_raster_counts(self, raster, output_type=1):
         """
-        Computes distributions of lulc rasters (% of the basin with the
-        X land cover class)
+        Computes area distributions of rasters (% of the basin area with the
+        X raster property)
+        Args:
+            raster (xarray.DataArray): Raster with basin properties
+                (e.g land cover classes, soil types, etc)
+            output_type (int, optional): Output type:
+                Option 1: 
+                    Returns a table with this format:
+                    +-------+----------+----------+
+                    | INDEX | PROPERTY | FRACTION |
+                    +-------+----------+----------+
+                    |     0 | A        |          |
+                    |     1 | B        |          |
+                    |     2 | C        |          |
+                    +-------+----------+----------+
 
+                Option 2:
+                    Returns a table with this format:
+                    +-------------+----------+
+                    |    INDEX    | FRACTION |
+                    +-------------+----------+
+                    | fPROPERTY_A |          |
+                    | fPROPERTY_B |          |
+                    | fPROPERTY_C |          |
+                    +-------------+----------+
+
+                Defaults to 1.
         Returns:
-            counts: Percentage of the basin with the X property in each
-                    categorical raster.
+            counts (pandas.DataFrame): Results table
         """
         try:
-            if len(self.lulc) != 0:
-                counts = []
-                for raster in self.lulc:
-                    count = raster.to_series().value_counts()
-                    count = count/count.sum()
-                    count.name = self.fid
-                    count.index = [f'f{raster.name}_{i}' for i in count.index]
-                    counts.append(count)
-                counts = pd.DataFrame(pd.concat(counts)).T
+            counts = raster.to_series().value_counts()
+            counts = counts/counts.sum()
+            counts.name = self.fid
+            if output_type == 1:
+                counts = counts.reset_index()
+            elif output_type == 2:
+                counts.index = [f'f{raster.name}_{i}' for i in counts.index]
+                counts = pd.DataFrame(counts)
             else:
-                counts = pd.DataFrame([], index=[self.fid])
-
+                raise RuntimeError(f'{output_type} must only be 1 or 2.')
         except Exception as e:
-            counts = pd.DataFrame([], index=[self.fid])
-            warnings.warn('LULC rasters Error:', e, self.fid)
+            counts = pd.DataFrame([], columns=[self.fid],
+                                  index=[0])
+            warnings.warn('Raster counting Error:', e, self.fid)
         return counts
-
-    def get_lulc_raster(self, name):
-        """
-        Return a LULC raster from its name
-
-        Args:
-            name (str): raster name
-
-        Returns:
-            xarray.DataArray:
-        """
-        for raster in self.lulc:
-            if raster.name == name:
-                return raster
-
-    def get_lulc_perc(self, name):
-        """
-        This function takes all computations stored in the "lulc" key 
-        of the params dataframe and returns a new pandas object with 
-        the raster value in the index and the percentage of the basin with
-        that value in the pandas values
-
-        Args:
-            name (str): name of the lulc raster to process
-
-        Returns:
-            pandas.Series: Series with raster distribution along the basin
-        """
-        field = self.params.loc['lulc'][self.fid]
-        mask = field.index.map(lambda x: name in x)
-        field = field.loc[mask]
-        values = [v.split(name)[-1].replace('_', '') for v in field.index]
-        field.index = values
-        field.index = field.index.astype(self.get_lulc_raster(name).dtype)
-        return field
 
     def compute_params(self,
                        main_river_kwargs={},
@@ -304,10 +319,15 @@ class RiverBasin(object):
         # Flow derived params
         self.process_river_network(**main_river_kwargs)
 
-        # LULC raster distributions
-        lulc_counts = self.process_lulc()
+        # Curve number process
+        if type(self.cn) != type(None):
+            cn_counts = self.process_raster_counts(self.cn, output_type=2)
+            cn_counts = cn_counts[self.fid]
+            cn_counts.loc['curvenumber_1'] = self.cn.mean().item()
+        else:
+            cn_counts = pd.DataFrame([])
 
-        self.params = pd.concat([self.params.T, lulc_counts.T],
+        self.params = pd.concat([self.params.T, cn_counts],
                                 keys=['geoparams', 'lulc'])
 
         return self
