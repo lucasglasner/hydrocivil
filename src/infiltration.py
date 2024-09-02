@@ -31,17 +31,17 @@ def CN_correction(CN_II, AMC):
     Returns:
         CN_I or CN_III (float): _description_
     """
-    if AMC == 'dry':
+    if (AMC == 'dry') or (AMC == 'I'):
         CN_I = 4.2*CN_II/(10-0.058*CN_II)
         return CN_I
-    elif AMC == 'normal':
+    elif (AMC == 'normal') or (AMC == 'II'):
         return CN_II
-    elif AMC == 'wet':
+    elif (AMC == 'wet') or (AMC == 'III'):
         CN_III = 23*CN_II/(10+0.13*CN_II)
         return CN_III
     else:
         text = f'AMC="{AMC}"'
-        text = text+' Moisture condition can only be "dry, "normal" or "wet"'
+        text = text+' Unkown antecedent moisture condition.'
         raise RuntimeError(text)
 
 
