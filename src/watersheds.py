@@ -3,7 +3,7 @@
  # @Create Time: 2024-08-05 11:11:38
  # @Modified by: Lucas Glasner,
  # @Modified time: 2024-08-05 11:11:43
- # @Description: Main Basin/watershed class
+ # @Description: Main watershed classes
  # @Dependencies:
 
 '''
@@ -112,7 +112,8 @@ class RiverBasin(object):
         self.params.loc[index, :] = value
         return self
 
-    def process_gdaldem(self, varname, open_rasterio_kwargs={}, **kwargs):
+    def process_gdaldem(self, varname, overwrite=True,
+                        open_rasterio_kwargs={}, **kwargs):
         """
         Accessor to gdaldem command line utility.
 
@@ -127,9 +128,13 @@ class RiverBasin(object):
         iname = self.dem.elevation.encoding['source']
         oname = self.dem.elevation.encoding['source'].split(psep)
         oname = f'{psep}'.join(oname[:-1])+f'{psep}{varname}_'+oname[-1]
-        gdal.DEMProcessing(oname, iname, varname, **kwargs)
-        field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
-        field = field.squeeze().to_dataset(name=varname)
+        if os.path.isfile(oname) and overwrite:
+            field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
+            field = field.squeeze().to_dataset(name=varname)
+        else:
+            gdal.DEMProcessing(oname, iname, varname, **kwargs)
+            field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
+            field = field.squeeze().to_dataset(name=varname)
         return field
 
     def process_hypsometric_curve(self, bins='auto', **kwargs):
@@ -331,3 +336,47 @@ class RiverBasin(object):
                                 keys=['geoparams', 'lulc'])
 
         return self
+
+
+class RiverReach(object):
+    def tests(self, rivers, dem):
+        """
+        Args:
+            rivers (GeoDataFrame): River network lines
+            dem (xarray.DataArray): Digital elevation model raster
+        Raises:
+            RuntimeError: If any dataset isnt in a projected (UTM) crs.
+        """
+        prj_error = '{} must be in a projected (UTM) crs !'
+        if not rivers.crs.is_projected:
+            error = prj_error.format('Rivers geometry')
+            raise RuntimeError(error)
+        if not dem.rio.crs.is_projected:
+            error = prj_error.format('DEM raster')
+            raise RuntimeError(error)
+
+    def __init__(self, fid, dem, rivers):
+        """
+        River reach/channel class constructor
+
+        Args:
+            fid (str): Basin identifier
+            rivers (GeoDataFrame): River network segments
+            dem (xarray.DataArray): Digital elevation model
+
+        Raises:
+            RuntimeError: If any of the given spatial data isnt in a projected
+                cartographic projection.
+        """
+        self.tests(rivers, dem)
+        # ID
+        self.fid = fid
+
+        # Vectors
+        self.rivers = rivers
+        self.rivers_main = pd.Series([])
+
+        # Terrain
+        self.dem = dem.rio.write_nodata(-9999).squeeze()
+        self.dem = self.dem.to_dataset(name='elevation')
+        self.dem.encoding = dem.encoding
