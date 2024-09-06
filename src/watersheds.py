@@ -46,12 +46,11 @@ class RiverBasin(object):
         if not dem.rio.crs.is_projected:
             error = prj_error.format('DEM raster')
             raise RuntimeError(error)
-        if type(cn) != type(None):
-            if not cn.rio.crs.is_projected:
-                error = prj_error.format('Curve Number raster')
-                raise RuntimeError(error)
+        if not cn.rio.crs.is_projected:
+            error = prj_error.format('Curve Number raster')
+            raise RuntimeError(error)
 
-    def __init__(self, fid, basin, rivers, dem, cn=None):
+    def __init__(self, fid, basin, rivers, dem, cn):
         """
         Drainage Basin class constructor
 
@@ -60,7 +59,7 @@ class RiverBasin(object):
             basin (GeoDataFrame): Watershed polygon
             rivers (GeoDataFrame): River network segments
             dem (xarray.DataArray): Digital elevation model
-            cn (xarray.DataArray): Curve Number raster. Defaults to None.
+            cn (xarray.DataArray): Curve Number raster.
 
         Raises:
             RuntimeError: If any of the given spatial data isnt in a projected
@@ -81,11 +80,8 @@ class RiverBasin(object):
         self.dem.encoding = dem.encoding
 
         # Curve Number
-        if type(cn) != type(None):
-            cn = cn.rio.write_nodata(-9999).squeeze()
-            self.cn = cn
-        else:
-            self.cn = None
+        cn = cn.rio.write_nodata(-9999).squeeze()
+        self.cn = cn
 
         # Properties
         self.params = pd.DataFrame([], index=[self.fid])
@@ -325,12 +321,9 @@ class RiverBasin(object):
         self.process_river_network(**main_river_kwargs)
 
         # Curve number process
-        if type(self.cn) != type(None):
-            cn_counts = self.process_raster_counts(self.cn, output_type=2)
-            cn_counts = cn_counts[self.fid]
-            cn_counts.loc['curvenumber_1'] = self.cn.mean().item()
-        else:
-            cn_counts = pd.DataFrame([])
+        cn_counts = self.process_raster_counts(self.cn, output_type=2)
+        cn_counts = cn_counts[self.fid]
+        cn_counts.loc['curvenumber_1'] = self.cn.mean().item()
 
         self.params = pd.concat([self.params.T, cn_counts],
                                 keys=['geoparams', 'lulc'])
