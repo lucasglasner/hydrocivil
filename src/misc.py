@@ -12,7 +12,7 @@ import os
 import pandas as pd
 import numpy as np
 
-# ---------------------------------------------------------------------------- #
+# ------------------------------------ gis ----------------------------------- #
 
 
 def chile_region(point, regions):
@@ -20,7 +20,7 @@ def chile_region(point, regions):
     Given a geopandas point and region/states polygones
     this function returns the ID of the polygon where the point belongs
     (as long as an ID column exists in the region polygons)
-    If an ID column doesnt exist in the reigon polygons this function 
+    If an ID column doesnt exist in the region polygons this function 
     will return the polygon index.
 
     Args:
@@ -42,6 +42,29 @@ def chile_region(point, regions):
     region = regions.iloc[mask, :]['ID']
     return region.item()
 
+
+def raster_distribution(raster, **kwargs):
+    """
+    Given a raster this function computes the histogram
+
+    Args:
+        raster (xarray.Dataset): raster
+
+    Returns:
+        (pandas.Series): Histogram with data in index and pdf in values
+    """
+    total_pixels = raster.size
+    total_pixels = total_pixels-np.isnan(raster).sum()
+    total_pixels = total_pixels.item()
+
+    values = raster.squeeze().values.flatten()
+    values = values[~np.isnan(values)]
+    dist, values = np.histogram(values, **kwargs)
+    dist, values = dist/total_pixels, 0.5*(values[:-1]+values[1:])
+    return pd.Series(dist, index=values, name=f'{raster.name}_dist')
+
+
+# ----------------------------------- other ---------------------------------- #
 
 def get_psep():
     """
@@ -89,24 +112,3 @@ def to_numeric(obj):
         return pd.to_numeric(obj)
     except:
         return obj
-
-
-def raster_distribution(raster, **kwargs):
-    """
-    Given a raster this function computes the histogram
-
-    Args:
-        raster (xarray.Dataset): raster
-
-    Returns:
-        (pandas.Series): Histogram with data in index and pdf in values
-    """
-    total_pixels = raster.size
-    total_pixels = total_pixels-np.isnan(raster).sum()
-    total_pixels = total_pixels.item()
-
-    values = raster.squeeze().values.flatten()
-    values = values[~np.isnan(values)]
-    dist, values = np.histogram(values, **kwargs)
-    dist, values = dist/total_pixels, 0.5*(values[:-1]+values[1:])
-    return pd.Series(dist, index=values, name=f'{raster.name}_dist')

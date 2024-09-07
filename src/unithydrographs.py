@@ -134,13 +134,13 @@ def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
     valid for the III to the X political regions. 
 
     References:
-    Manual de calculo de crecidas y caudales minimos en cuencas sin 
-    informacion fluviometrica. Republica de Chile, Ministerio de Obras
-    Publicas (MOP), Dirección General de Aguas (DGA) (1995). 
+        Manual de calculo de crecidas y caudales minimos en cuencas sin 
+        informacion fluviometrica. Republica de Chile, Ministerio de Obras
+        Publicas (MOP), Dirección General de Aguas (DGA) (1995). 
 
-    Bras, R. L. (1990). Hydrology: an introduction to hydrologic science.
+        Bras, R. L. (1990). Hydrology: an introduction to hydrologic science.
 
-    ???
+        ???
 
 
     Args:
@@ -243,7 +243,7 @@ def ArteagaBenitez_zone(region):
         return 'IV'
     elif region in ['XV', 'I']:
         text = f'Region: {region} not strictly aviable for the method.'
-        text = text+' Using the nreast zone: "IV"'
+        text = text+' Using the nearest zone: "IV"'
         warnings.warn(text)
         return 'IV'
     elif region in ['XI', 'XII']:
@@ -413,12 +413,9 @@ class SynthUnitHydro(object):
         Returns:
             (pandas.Series): flood hydrograph 
         """
-        if type(self.UnitHydro) == type(None):
-            raise ValueError('Compute the unit hydrograph first!')
-        else:
-            hydrograph = pd.Series(sg.convolve(rainfall, self.UnitHydro))
-            hydrograph.index = hydrograph.index*self.timestep
-            return hydrograph
+        hydrograph = pd.Series(sg.convolve(rainfall, self.UnitHydro))
+        hydrograph.index = hydrograph.index*self.timestep
+        return hydrograph
 
     def compute(self, interp_kwargs={'kind': 'quadratic'}):
         """

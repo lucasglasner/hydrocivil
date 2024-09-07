@@ -9,14 +9,15 @@
 
 import pandas as pd
 import numpy as np
-import networkx as nx
 import warnings
 from shapely.geometry import Point
 
 # ------------------------ Geomorphological properties ----------------------- #
 
 
-def main_river(river_network, node_a='NODE_A', node_b='NODE_B', length='LENGTH'):
+def main_river(river_network,
+               node_a='NODE_A', node_b='NODE_B',
+               weight='LENGTH'):
     """
     For a given river network (shapefile with segments and connectivity
     information) this functions creates a graph with the river network
@@ -31,17 +32,18 @@ def main_river(river_network, node_a='NODE_A', node_b='NODE_B', length='LENGTH')
             Defalts to 'NODE_A' (Attribute by SAGA-GIS)
         node_b (str): Column name with the ending ID of each segment
             Defalts to 'NODE_B' (Attribute by SAGA-GIS)
-        length (str): Column name with segment length
+        weight (str): Column name with segment weight
             Defalts to 'LENGTH' (Attribute by SAGA-GIS)
     Returns:
         (GeoDataFrame): Main river extracted from the river network
     """
+    import networkx as nx
     # Create River Network Graph
     try:
         G = nx.DiGraph()
         for a, b, leng in zip(river_network[node_a],
                               river_network[node_b],
-                              river_network[length]):
+                              river_network[weight]):
             G.add_edge(a, b, weight=leng)
 
         # Get the main river segments
