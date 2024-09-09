@@ -19,6 +19,7 @@ import xarray as xr
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
+from src.unithydrographs import SynthUnitHydro
 from src.geomorphology import *
 from src.misc import get_psep, raster_distribution
 
@@ -81,10 +82,14 @@ class RiverBasin(object):
 
         # Curve Number
         self.cn = cn.rio.write_nodata(-9999).squeeze()
+        self.cn_counts = pd.DataFrame([])
 
         # Properties
-        self.params = pd.DataFrame([], index=[self.fid])
+        self.params = pd.DataFrame([], index=[self.fid], dtype=object)
         self.hypsometric_curve = pd.Series([])
+
+        # UnitHydrograph
+        self.UnitHydro = None
 
     def __repr__(self) -> str:
         """
@@ -92,13 +97,22 @@ class RiverBasin(object):
         Returns:
             str: Some metadata
         """
-        text = f'RiverBasin: {self.fid}\n'
-        text = text+f'Parameters:\n\n{self.params.head(5)}'
+        if type(self.UnitHydro) != type(None):
+            uh_text = self.UnitHydro.method
+        else:
+            uh_text = None
+
+        if self.params.shape != (1, 0):
+            param_text = str(self.params).replace(self.fid, '')
+        else:
+            param_text = None
+        text = f'RiverBasin: {self.fid}\nUnitHydro: {uh_text}\n'
+        text = text+f'Parameters: {param_text}'
         return text
 
     def set_parameter(self, index, value):
         """
-        Simple function to add a new parameter to the basin parameters table
+        Simple function to add or fix a parameter to the basin parameters table
 
         Args:
             index (str): parameter name/id or what to put in the table index
@@ -271,7 +285,8 @@ class RiverBasin(object):
             counts = counts/counts.sum()
             counts.name = self.fid
             if output_type == 1:
-                counts = counts.reset_index()
+                counts = counts.reset_index().rename({self.fid: 'weights'},
+                                                     axis=1)
             elif output_type == 2:
                 counts.index = [f'f{raster.name}_{i}' for i in counts.index]
                 counts = pd.DataFrame(counts)
@@ -320,13 +335,49 @@ class RiverBasin(object):
         self.process_river_network(**main_river_kwargs)
 
         # Curve number process
-        cn_counts = self.process_raster_counts(self.cn, output_type=2)
-        cn_counts = cn_counts[self.fid]
-        cn_counts.loc['curvenumber_1'] = self.cn.mean().item()
+        self.cn_counts = self.process_raster_counts(self.cn)
+        self.params['curvenumber_1'] = self.cn.mean().item()
+        self.params = self.params.T.astype(object)
 
-        self.params = pd.concat([self.params.T, cn_counts], axis=0)
+        # self.params = pd.concat([self.params.T, cn_counts], axis=0)
 
         return self
+
+    def SynthUnitHydro(self, method, **kwargs):
+        """
+        Synthetic Unit Hygrograph class accessor
+
+        Args:
+            method (str): Type of synthetic unit hydrograph to use. 
+                Options: 'SCS', 'Gray', 'Arteaga&Benitez', 
+            timestep (float): unit hydrograph timestep. 
+
+        Returns:
+            _type_: _description_
+        """
+        SUH = SynthUnitHydro(self.params[self.fid], method, **kwargs).compute()
+        self.UnitHydro = SUH
+        return self
+
+    def plot(self, basin_kwargs={}, rivers_kwargs={}, rivers_main_kwargs={}):
+        """
+        Simple plot function for the basin taking account polygon and rivers
+
+        Args:
+            basin_kwargs (dict, optional): Arguments for the basin.
+                Defaults to {}.
+            rivers_kwargs (dict, optional): Arguments for the rivers.
+                Defaults to {}.
+            rivers_main_kwargs (dict, optional): Arguments for the main rivers.
+                Defaults to {}.
+        """
+        plot_basin = self.basin.plot(color='silver', edgecolor='k',
+                                     **basin_kwargs)
+        plot_basin.axes.set_title(self.fid, loc='left')
+        self.rivers.plot(ax=plot_basin.axes, **rivers_kwargs)
+        self.rivers_main.plot(ax=plot_basin.axes, color='tab:red',
+                              **rivers_main_kwargs)
+        return plot_basin.axes
 
 
 class RiverReach(object):
@@ -371,3 +422,8 @@ class RiverReach(object):
         self.dem = dem.rio.write_nodata(-9999).squeeze()
         self.dem = self.dem.to_dataset(name='elevation')
         self.dem.encoding = dem.encoding
+
+
+class Reservoir(object):
+    def __init__(self):
+        pass

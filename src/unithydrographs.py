@@ -8,10 +8,13 @@
  # @ Dependencies:
  '''
 
+import os
 import warnings
 import numpy as np
 import pandas as pd
 import scipy.signal as sg
+import geopandas as gpd
+
 from math import gamma
 from scipy.interpolate import interp1d
 
@@ -361,29 +364,42 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
     uh = uh/volume
     params = (qpR/volume*area_km2/1e3, tpR, tbR, tstep)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tbase', 'tstep'])
-    uh.name, params.name = 'A&B_m3s-1 mm-1', 'Params_A&B'
+    uh.name, params.name = 'A&B_m3 s-1 mm-1', 'Params_A&B'
     return uh*area_km2/1e3, params
 
 # -------------------------------- MAIN CLASS -------------------------------- #
 
 
 class SynthUnitHydro(object):
-    def __init__(self, basin_params, method, timestep):
+    def __init__(self, basin_params, method, timestep=10/60,
+                 interp_kwargs={'kind': 'quadratic'}):
         """
         Synthetic unit hydrograph (SUH) constructor.
 
         Args:
             method (str): Type of synthetic unit hydrograph to use. 
-                Options: 'SCS', 'Arteaga&Benitez', 
+                Options: 'SCS', 'Arteaga&Benitez' or 'Gray'
             basin_params (dict): Dictionary with input parameters. 
-            timestep (float): unit hydrograph timestep. 
+            timestep (float): unit hydrograph timestep.
+                Default to 10/60 hours (10min)
         """
         self.method = method
         self.basin_params = pd.Series(basin_params)
         self.timestep = timestep
+        self.interp_kwargs = interp_kwargs
         self.UnitHydro = None
         self.S_UnitHydro = None
         self.UnitHydroParams = None
+
+    def __repr__(self) -> str:
+        """
+        What to show when invoking a SynthUnitHydro object
+        Returns:
+            str: Some metadata
+        """
+        text = f'Unit Hydrograph: {self.method}\n'
+        text = text+f'Parameters:\n\n{self.UnitHydroParams}'
+        return text
 
     def UH_cumulative(self):
         """
@@ -399,7 +415,7 @@ class SynthUnitHydro(object):
         S_uh = pd.concat(sums, axis=1).sum(axis=1)
         return S_uh
 
-    def convolve(self, rainfall):
+    def convolve(self, rainfall, **kwargs):
         """
         Solve for the convolution of a rainfall time series and the
         unit hydrograph
@@ -413,11 +429,15 @@ class SynthUnitHydro(object):
         Returns:
             (pandas.Series): flood hydrograph 
         """
-        hydrograph = pd.Series(sg.convolve(rainfall, self.UnitHydro))
+        if len(rainfall.shape) > 1:
+            def func(col): return sg.convolve(col, self.UnitHydro)
+            hydrograph = rainfall.apply(func, **kwargs)
+        else:
+            hydrograph = pd.Series(sg.convolve(rainfall, self.UnitHydro))
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, interp_kwargs={'kind': 'quadratic'}):
+    def compute(self):
         """
         Trigger calculation of desired unit hydrograph
 
@@ -432,22 +452,22 @@ class SynthUnitHydro(object):
                       'curvenumber_1']
             params = self.basin_params[params]
             uh, uh_params = SUH_SCS(tstep=self.timestep,
-                                    interp_kwargs=interp_kwargs,
+                                    interp_kwargs=self.interp_kwargs,
                                     **params)
 
         elif self.method == 'Arteaga&Benitez':
             params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
-                      'meanslope_1']
+                      'meanslope_1', 'zone']
             params = self.basin_params[params]
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
-                                               interp_kwargs=interp_kwargs,
+                                               interp_kwargs=self.interp_kwargs,
                                                **params)
 
         elif self.method == 'Gray':
             params = ['area_km2', 'mriverlen_km', 'meanslope_1']
             params = self.basin_params[params]
             uh, uh_params = SUH_Gray(tstep=self.timestep,
-                                     interp_kwargs=interp_kwargs,
+                                     interp_kwargs=self.interp_kwargs,
                                      **params)
 
         else:
@@ -456,4 +476,19 @@ class SynthUnitHydro(object):
         self.UnitHydro, self.UnitHydroParams = uh, uh_params
         self.timestep = uh_params.tstep
         self.S_UnitHydro = self.UH_cumulative()
-        return self.UnitHydro, self.UnitHydroParams
+        return self
+
+    def plot(self, **kwargs):
+        """
+        Simple accessor to plotting the unit hydrograph
+        Args:
+            **kwargs are given to pandas plot method
+        Returns:
+            output of pandas plot method
+        """
+        params = self.UnitHydroParams.to_dict()
+        text = [f'{key}: {val:.2f}' for key, val in params.items()]
+        text = ' ; '.join(text)
+        fig = self.UnitHydro.plot(xlabel='(hr)', ylabel='m3 s-1 mm-1',
+                                  title=text, **kwargs)
+        return fig
