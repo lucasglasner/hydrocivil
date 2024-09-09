@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import warnings
 from shapely.geometry import Point
+from src.infiltration import SCS_MaximumRetention
 
 # ------------------------ Geomorphological properties ----------------------- #
 
@@ -212,7 +213,7 @@ def tc_SCS(basin_mriverlen_km,
         Tc (float): Concentration time (minutes)
     """
     mriverlen_ft = 3280.84*basin_mriverlen_km
-    potentialstorage_inch = 1000/curvenumber_1-10
+    potentialstorage_inch = SCS_MaximumRetention(curvenumber_1, cfactor=1)
     slope_perc = basin_meanslope_1*100
     numerator = mriverlen_ft**0.8*((potentialstorage_inch+1) ** 0.7)
     denominator = 1140*slope_perc**0.5

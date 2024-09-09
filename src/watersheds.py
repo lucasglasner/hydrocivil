@@ -80,8 +80,7 @@ class RiverBasin(object):
         self.dem.encoding = dem.encoding
 
         # Curve Number
-        cn = cn.rio.write_nodata(-9999).squeeze()
-        self.cn = cn
+        self.cn = cn.rio.write_nodata(-9999).squeeze()
 
         # Properties
         self.params = pd.DataFrame([], index=[self.fid])
@@ -325,8 +324,7 @@ class RiverBasin(object):
         cn_counts = cn_counts[self.fid]
         cn_counts.loc['curvenumber_1'] = self.cn.mean().item()
 
-        self.params = pd.concat([self.params.T, cn_counts],
-                                keys=['geoparams', 'lulc'])
+        self.params = pd.concat([self.params.T, cn_counts], axis=0)
 
         return self
 

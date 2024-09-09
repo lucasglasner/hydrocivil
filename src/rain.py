@@ -12,7 +12,7 @@ import pandas as pd
 import xarray as xr
 
 from src.misc import is_iterable
-from src.infiltration import cum_abstraction
+from src.infiltration import SCS_Abstraction
 from scipy.interpolate import interp1d
 # ----------------------- duration coefficient routines ---------------------- #
 
@@ -96,132 +96,114 @@ def duration_coef(storm_duration,
 
 
 # ------------------------------- Design Storms ------------------------------ #
-def effective_rainfall(pr, duration, CN):
-    """
-    SCS formula for overall effective precipitation. 
 
-    Args:
-        pr (array_like): Precipitations. 
-        duration (float): Design storm duration
-        CN (float): Curve Number
+# def design_storms(storm_duration, synth_hyeto, tstep, precips,
+#                   interp_kwargs={'kind': 'quadratic'}):
+#     """
+#     Function to generate design storms for a given storm duration,
+#     synthetic hyetograph (hyetograph shape), time step and total accumulated
+#     precipitation in 24 hrs.
 
-    Returns:
-        (array_like): Effective precipitation (Precipitation - Infiltration)
-    """
-    # S = maximum infiltration given soil type and cover (CN)
-    # I0 = 0.2 * S infiltration until pond formation
-    S = (25400-254*CN)/CN  # SCS maximum infiltration capacity
-    pr_t = pr*duration_coef(duration)
-    pr_eff = (pr_t-0.2*S)*(pr_t-0.2*S)/(pr_t+0.8*S)
-    return pr_eff
+#     Args:
+#         storm_duration (float): Storm duration in hours.
+#         synth_hyeto (pandas.DataFrame): Storm shape.
+#         tstep (float): Model timestep in hours
+#         precips (pandas.Series): precipitation data in mm / day.
+#         interp_kwargs (dict): args to scipy.interpolation.interp1d function.
 
+#     Returns:
+#         (xr.DataArray): xarray with hyetographs
+#     """
+#     if is_iterable(storm_duration):
+#         storms = [design_storms(dt, synth_hyeto, tstep, precips, interp_kwargs)
+#                   for dt in storm_duration]
+#         storms = xr.concat(storms, 'storm_duration')
+#         storms.coords['storm_duration'] = (
+#             'storm_duration', storm_duration, {'units': 'hours'})
+#     else:
+#         # Definitions
+#         new_time = np.arange(0, storm_duration+tstep, tstep)
+#         returnperiods = precips.index
+#         storms_names = synth_hyeto.columns
 
-def design_storms(storm_duration, synth_hyeto, tstep, precips,
-                  interp_kwargs={'kind': 'quadratic'}):
-    """
-    Function to generate design storms for a given storm duration, 
-    synthetic hyetograph (hyetograph shape), time step and total accumulated
-    precipitation in 24 hrs. 
+#         # Compute accumulated precipitation for the overall event
+#         # Set the new time index based on the storm duration
+#         acc_storms = synth_hyeto.cumsum().copy()
+#         acc_storms.index = acc_storms.index*storm_duration
 
-    Args:
-        storm_duration (float): Storm duration in hours. 
-        synth_hyeto (pandas.DataFrame): Storm shape.
-        tstep (float): Model timestep in hours
-        precips (pandas.Series): precipitation data in mm / day. 
-        interp_kwargs (dict): args to scipy.interpolation.interp1d function.
+#         # Interpolate to the new time step
+#         interpfuncs = [interp1d(acc_storms.index, acc_storms[c].values,
+#                                 fill_value='extrapolate', **interp_kwargs)
+#                        for c in storms_names]
+#         acc_storms = [pd.Series(f(new_time), index=new_time, name=name)
+#                       for f, name in zip(interpfuncs, storms_names)]
+#         acc_storms = [storm/storm.sum()
+#                       for storm in acc_storms]  # Force accum(Pr) = 1
+#         acc_storms = pd.concat(acc_storms, axis=1)
+#         acc_storms.index = np.round(acc_storms.index, 4)
 
-    Returns:
-        (xr.DataArray): xarray with hyetographs
-    """
-    if is_iterable(storm_duration):
-        storms = [design_storms(dt, synth_hyeto, tstep, precips, interp_kwargs)
-                  for dt in storm_duration]
-        storms = xr.concat(storms, 'storm_duration')
-        storms.coords['storm_duration'] = (
-            'storm_duration', storm_duration, {'units': 'hours'})
-    else:
-        # Definitions
-        new_time = np.arange(0, storm_duration+tstep, tstep)
-        returnperiods = precips.index
-        storms_names = synth_hyeto.columns
+#         # Asign precipitations to the synthetic storms
+#         rainfall = pd.concat([precips]*len(acc_storms.index),
+#                              keys=acc_storms.index).swaplevel()
+#         rainfall = pd.concat([rainfall]*len(acc_storms.columns),
+#                              keys=acc_storms.columns).unstack(level=0)
+#         acc_storms = pd.concat([rainfall.loc[T]*acc_storms
+#                                 for T in returnperiods],
+#                                keys=returnperiods)
 
-        # Compute accumulated precipitation for the overall event
-        # Set the new time index based on the storm duration
-        acc_storms = synth_hyeto.cumsum().copy()
-        acc_storms.index = acc_storms.index*storm_duration
-
-        # Interpolate to the new time step
-        interpfuncs = [interp1d(acc_storms.index, acc_storms[c].values,
-                                fill_value='extrapolate', **interp_kwargs)
-                       for c in storms_names]
-        acc_storms = [pd.Series(f(new_time), index=new_time, name=name)
-                      for f, name in zip(interpfuncs, storms_names)]
-        acc_storms = [storm/storm.sum()
-                      for storm in acc_storms]  # Force accum(Pr) = 1
-        acc_storms = pd.concat(acc_storms, axis=1)
-        acc_storms.index = np.round(acc_storms.index, 4)
-
-        # Asign precipitations to the synthetic storms
-        rainfall = pd.concat([precips]*len(acc_storms.index),
-                             keys=acc_storms.index).swaplevel()
-        rainfall = pd.concat([rainfall]*len(acc_storms.columns),
-                             keys=acc_storms.columns).unstack(level=0)
-        acc_storms = pd.concat([rainfall.loc[T]*acc_storms
-                                for T in returnperiods],
-                               keys=returnperiods)
-
-        # Return as an n-dimensional array of non-accumulated rain
-        storms = [acc_storms.loc[T].diff(axis=0).bfill()
-                  for T in returnperiods]
-        storms = [s/s.sum()*rainfall.loc[T]
-                  for s, T in zip(storms, returnperiods)]
-        storms = xr.DataArray(storms, coords={'return_period': returnperiods,
-                                              'time': new_time,
-                                              'shyeto': storms_names},
-                              attrs={'standard_name': 'precipitation rate',
-                                     'units': 'mm*day-1'})
-        storms = storms.expand_dims(
-            dim={'storm_duration': [storm_duration]}, axis=0)
-        storms.coords['return_period'].attrs = {'standard_name': 'return_period',
-                                                'units': 'years'}
-        storms.coords['time'].attrs = {'standard_name': 'simulation time',
-                                       'units': 'hours'}
-        storms.coords['shyeto'].attrs = {
-            'standard_name': 'synthetic hyetograph'}
-        storms = storms.to_dataset(name='pr')
-    return storms
+#         # Return as an n-dimensional array of non-accumulated rain
+#         storms = [acc_storms.loc[T].diff(axis=0).bfill()
+#                   for T in returnperiods]
+#         storms = [s/s.sum()*rainfall.loc[T]
+#                   for s, T in zip(storms, returnperiods)]
+#         storms = xr.DataArray(storms, coords={'return_period': returnperiods,
+#                                               'time': new_time,
+#                                               'shyeto': storms_names},
+#                               attrs={'standard_name': 'precipitation rate',
+#                                      'units': 'mm*day-1'})
+#         storms = storms.expand_dims(
+#             dim={'storm_duration': [storm_duration]}, axis=0)
+#         storms.coords['return_period'].attrs = {'standard_name': 'return_period',
+#                                                 'units': 'years'}
+#         storms.coords['time'].attrs = {'standard_name': 'simulation time',
+#                                        'units': 'hours'}
+#         storms.coords['shyeto'].attrs = {
+#             'standard_name': 'synthetic hyetograph'}
+#         storms = storms.to_dataset(name='pr')
+#     return storms
 
 
-def effective_storms(storms, method='SCS', **kwargs):
-    """
-    This function compute the effective precipitation for a given storm.
-    The basic idea is to compute the net infiltration along time and
-    substract it from the total precipitation. 
+# def effective_storms(storms, method='SCS', **kwargs):
+#     """
+#     This function compute the effective precipitation for a given storm.
+#     The basic idea is to compute the net infiltration along time and
+#     substract it from the total precipitation.
 
-    Args:
-        storms (xr.DataArray): xarray with hyetographs
-        method (str, optional): Method to compute infiltration.
-            Defaults to 'SCS'.
-        **kwargs are given to the infiltration routine
+#     Args:
+#         storms (xr.DataArray): xarray with hyetographs
+#         method (str, optional): Method to compute infiltration.
+#             Defaults to 'SCS'.
+#         **kwargs are given to the infiltration routine
 
-    Returns:
-        (xr.DataArray): xarray with effective hyetographs
-    """
-    if method == 'SCS':
-        attrs = storms.attrs
-        dcoef = [duration_coef(dt) for dt in storms.storm_duration]
-        dcoef = xr.DataArray(
-            dcoef, coords={'storm_duration': storms.storm_duration})
-        pr_eff = storms.cumsum('time')*dcoef
-        pr_eff.name = 'pr_eff'
+#     Returns:
+#         (xr.DataArray): xarray with effective hyetographs
+#     """
+#     if method == 'SCS':
+#         attrs = storms.attrs
+#         dcoef = [duration_coef(dt) for dt in storms.storm_duration]
+#         dcoef = xr.DataArray(
+#             dcoef, coords={'storm_duration': storms.storm_duration})
+#         pr_eff = storms.cumsum('time')*dcoef
+#         pr_eff.name = 'pr_eff'
 
-        infilt = pr_eff.to_dataframe().map(cum_abstraction, **kwargs)
-        pr_eff = pr_eff-infilt.to_xarray()
-        pr_eff = pr_eff.diff('time').reindex(
-            {'time': storms.time}).bfill('time')
-        pr_eff = pr_eff.where(storms >= 0)
+#         # infilt = pr_eff.to_dataframe().map(cum_abstraction, **kwargs)
+#         infilt = SCS_Abstraction(pr_eff.to_dataframe(), **kwargs)
+#         pr_eff = pr_eff-infilt.to_xarray()
+#         pr_eff = pr_eff.diff('time').reindex(
+#             {'time': storms.time}).bfill('time')
+#         pr_eff = pr_eff.where(storms >= 0)
 
-        storms = xr.merge([storms, pr_eff])
-        storms.pr_eff.attrs = attrs
-        storms.pr_eff.attrs['standard_name'] = 'effective precipitation rate'
-    return storms
+#         storms = xr.merge([storms, pr_eff])
+#         storms.pr_eff.attrs = attrs
+#         storms.pr_eff.attrs['standard_name'] = 'effective precipitation rate'
+#     return storms
