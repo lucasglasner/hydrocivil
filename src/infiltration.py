@@ -64,19 +64,16 @@ def SCS_MaximumRetention(cn, cfactor=25.4):
     return cfactor*S
 
 
-def SCS_EffectiveRainfall(pr, cn, r=0.2, amc='II', weights=None, **kwargs):
+def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
     """
-    SCS formula for overall effective precipitation/runoff.
+    SCS formula for overall effective precipitation/runoff. Function
+    adapted to work for scalar inputs or array_like inputs.
 
     Args:
         pr (array_like): Precipitation in mm
         cn (array_like or float): Curve Number
         r (float, optional): Fraction of the maximum potential retention
             Defaults to 0.2.
-        amc (str): Antecedent moisture condition. Defaults to 'II'. 
-            Options: 'dry' or 'I',
-                     'normal' or 'II'
-                     'wet' or 'III'
         weights (array_like). If curve number is an array of values this
             attribute expects an array of the same size with weights for
             the precipitation computation. Defaults to None.
@@ -85,7 +82,6 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, amc='II', weights=None, **kwargs):
     Returns:
         (array_like): Effective precipitation (Precipitation - Infiltration)
     """
-    cn = cn_correction(cn, amc)
     if not np.isscalar(cn):
         if type(weights) != type(None):
             pr_eff = [SCS_EffectiveRainfall(pr, cn_i, r, weights=None)*w

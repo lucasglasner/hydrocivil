@@ -22,6 +22,7 @@ from scipy.interpolate import interp1d
 from src.unithydrographs import SynthUnitHydro
 from src.geomorphology import *
 from src.misc import get_psep, raster_distribution
+from src.infiltration import cn_correction
 
 # ---------------------------------------------------------------------------- #
 
@@ -51,7 +52,7 @@ class RiverBasin(object):
             error = prj_error.format('Curve Number raster')
             raise RuntimeError(error)
 
-    def __init__(self, fid, basin, rivers, dem, cn):
+    def __init__(self, fid, basin, rivers, dem, cn, amc='II'):
         """
         Drainage Basin class constructor
 
@@ -61,6 +62,10 @@ class RiverBasin(object):
             rivers (GeoDataFrame): River network segments
             dem (xarray.DataArray): Digital elevation model
             cn (xarray.DataArray): Curve Number raster.
+            amc (str): Antecedent moisture condition. Defaults to 'II'. 
+            Options: 'dry' or 'I',
+                     'normal' or 'II'
+                     'wet' or 'III'
 
         Raises:
             RuntimeError: If any of the given spatial data isnt in a projected
@@ -82,6 +87,7 @@ class RiverBasin(object):
 
         # Curve Number
         self.cn = cn.rio.write_nodata(-9999).squeeze()
+        self.cn = cn_correction(self.cn, amc=amc)
         self.cn_counts = pd.DataFrame([])
 
         # Properties

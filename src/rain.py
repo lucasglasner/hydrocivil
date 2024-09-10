@@ -138,8 +138,8 @@ class DesignStorm(object):
             str: Some metadata
         """
         text = f'Storm type: {self.kind}\n'
-        text = text+f'Total rainfall:\n{self.Hyetograph.sum(axis=0)}\n'
-        text = text+f'Total losses:\n{self.Losses.sum(axis=0)}\n'
+        text = text+f'Total rainfall:\n{self.Hyetograph.sum(axis=0):.2f}\n'
+        text = text+f'Total losses:\n{self.Losses.sum(axis=0):.2f}\n'
         return text
 
     def infiltrate(self, method='SCS', **kwargs):
