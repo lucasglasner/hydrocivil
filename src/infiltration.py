@@ -70,11 +70,11 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
     adapted to work for scalar inputs or array_like inputs.
 
     Args:
-        pr (array_like): Precipitation in mm
+        pr (array_like or float): Precipitation in mm
         cn (array_like or float): Curve Number
         r (float, optional): Fraction of the maximum potential retention
             Defaults to 0.2.
-        weights (array_like). If curve number is an array of values this
+        weights (array_like or None). If curve number is an array of values this
             attribute expects an array of the same size with weights for
             the precipitation computation. Defaults to None.
         **kwargs are passed to SCS_MaximumRetention function
@@ -82,44 +82,44 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
     Returns:
         (array_like): Effective precipitation (Precipitation - Infiltration)
     """
-    if not np.isscalar(cn):
-        if type(weights) != type(None):
-            pr_eff = [SCS_EffectiveRainfall(pr, cn_i, r, weights=None)*w
-                      for cn_i, w in zip(cn, weights)]
-            if np.isscalar(pr):
-                pr_eff = np.sum(pr_eff)
-            else:
-                pr_eff = pd.concat(pr_eff, keys=cn).unstack(1).sum(axis=0)
-        else:
-            raise ValueError(
-                'If cn is iterable must give weights to each land cover class!')
+    if np.isscalar(pr):
+        return SCS_EffectiveRainfall([pr], cn, r, weights, **kwargs)
     else:
-        S = SCS_MaximumRetention(cn, **kwargs)
-        Ia = r*S
-        pr_eff = (pr-Ia)**2/(pr-Ia+S)
-        if np.isscalar(pr):
-            if pr <= Ia:
-                pr_eff = 0
-        else:
+        if np.isscalar(cn):
+            S = SCS_MaximumRetention(cn, **kwargs)
+            Ia = r*S
+            pr_eff = (pr-Ia)**2/(pr-Ia+S)
             pr_eff[pr <= Ia] = 0
-    return pr_eff
+        else:
+            if (type(weights) != type(None)) and (sum(weights) == 1):
+                pr_eff = [w*SCS_EffectiveRainfall(pr, cn_i, r, None, **kwargs)
+                          for cn_i, w in zip(cn, weights)]
+                pr_eff = sum(pr_eff)
+            else:
+                text = 'Weights must be added for each land class'
+                text = text+' (must add up to 1)'
+                raise ValueError(text)
+        return pr_eff
 
 
-def SCS_Abstraction(pr, cn, r=0.2, **kwargs):
+def SCS_Losses(pr, cn, r=0.2, weights=None, **kwargs):
     """
     SCS formula for overall water losses due to infiltration/abstraction
 
     Args:
-        pr (array_like): Precipitation in mm 
-        cn (float): Curve Number
+        pr (array_like or float): Precipitation in mm 
+        cn (array_like or float): Curve Number
         r (float, optional): Fraction of the maximum potential retention
             Defaults to 0.2.
+        weights (array_like or None). If curve number is an array of values this
+            attribute expects an array of the same size with weights for
+            the precipitation computation. Defaults to None.
         **kwargs are passed to SCS_MaximumRetention function
 
 
     Returns:
-        (array_like): Infiltration
+        (array_like): Losses/Abstraction/Infiltration
     """
-    pr_eff = SCS_EffectiveRainfall(pr, cn, r, **kwargs)
-    inf = pr-pr_eff
-    return inf
+    pr_eff = SCS_EffectiveRainfall(pr, cn, r, weights, **kwargs)
+    Losses = pr-pr_eff
+    return Losses

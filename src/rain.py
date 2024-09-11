@@ -11,8 +11,9 @@ import os
 import numpy as np
 import pandas as pd
 import xarray as xr
+import warnings
 
-from src.infiltration import SCS_Abstraction
+from src.infiltration import SCS_Losses
 from scipy.interpolate import interp1d
 # ----------------------- duration coefficient routines ---------------------- #
 
@@ -43,7 +44,7 @@ def bell_coef(storm_duration, ref_duration=24):
     given by the Bell Formula.
 
     References:
-        Bell, F.C. (1969) Generalized Rainfall-Duration-Frequency
+        Bell, F.C. (1969) Generalized pr-Duration-Frequency
         Relationships. Journal of Hydraulic Division, ASCE, 95, 311-327.
 
     Args:
@@ -85,6 +86,9 @@ def duration_coef(storm_duration,
         for i in range(len(coefs)):
             if t[i] < duration_threshold:
                 coefs[i] = duration_coef(duration_threshold, ref_duration)
+                text = f'Storm duration is less than {duration_threshold}'
+                text = text+f' threshold, changing to {duration_threshold}.'
+                warnings.warn(text)
             elif (t[i] >= duration_threshold) and (t[i] < bell_threshold):
                 coefs[i] = bell_coef(t[i], ref_duration)
             else:
@@ -119,17 +123,18 @@ class DesignStorm(object):
                     'G4_Varas1985'
         """
         shyeto_path = os.path.join('data', 'synthethic_storms.csv')
-        shyeto = pd.read_csv(shyeto_path, index_col=0)[kind]
+        shyeto = pd.read_csv(shyeto_path, index_col=0,
+                             usecols=['time', kind])[kind]
+        self.SynthHyetograph = shyeto
         self.kind = kind
+
         self.timestep = None
         self.duration = None
         self.rainfall = None
         self.ref_duration = None
-
-        self.SynthHyetograph = shyeto
-        self.Hyetograph = pd.DataFrame([])
-        self.Effective_Hyetograph = pd.DataFrame([])
-        self.Losses = pd.DataFrame([])
+        self.Hyetograph = None
+        self.Effective_Hyetograph = None
+        self.Losses = None
 
     def __repr__(self) -> str:
         """
@@ -138,8 +143,10 @@ class DesignStorm(object):
             str: Some metadata
         """
         text = f'Storm type: {self.kind}\n'
-        text = text+f'Total rainfall:\n{self.Hyetograph.sum(axis=0):.2f}\n'
-        text = text+f'Total losses:\n{self.Losses.sum(axis=0):.2f}\n'
+        if type(self.Hyetograph) != type(None):
+            text = text+f'Total rainfall:\n{self.Hyetograph.sum(axis=0)}\n'
+        if type(self.Losses) != type(None):
+            text = text+f'Total losses:\n{self.Losses.sum(axis=0)}\n'
         return text
 
     def infiltrate(self, method='SCS', **kwargs):
@@ -155,24 +162,22 @@ class DesignStorm(object):
         storm = self.Hyetograph
         if method == 'SCS':
             storm_cum = storm.cumsum()
-            losses = SCS_Abstraction(storm_cum, **kwargs)
+            losses = SCS_Losses(storm_cum, **kwargs)
             self.Losses = losses.diff().fillna(0)
             self.Effective_Hyetograph = self.Hyetograph-self.Losses
         else:
             raise ValueError(f'{method} unknown infiltration method.')
         return self
 
-    def compute(self, timestep, duration, rainfall,
-                ref_duration=24, **kwargs):
+    def compute(self, timestep, duration, rainfall, ref_duration=24, **kwargs):
         """
         Trigger computation of design storm for a given timestep, storm 
-        duration, and precipitation for a reference storm
-        (rainfall and ref_duration)
+        duration, and precipitation for a reference storm (pr and ref_duration)
 
         Args:
             timestep (float): Storm timestep or resolution in hours
             duration (float): Total storm duration in hours
-            rainfall (float): Total precipitation in mm
+            rainfall (1D array_like or float): Total precipitation in mm
             ref_duration (float): Duration of the given precipitation.
                 Defaults to 24h.
             **kwargs are given to the interpolation function
@@ -190,21 +195,31 @@ class DesignStorm(object):
         time = np.arange(0, duration+timestep, timestep)
         storm = pd.Series(func(time), index=time).cumsum()
 
-        pr_fix = rainfall*duration_coef(duration, ref_duration)
-        storm = (storm*pr_fix/storm.max()).diff().fillna(0)
+        if np.isscalar(rainfall):
+            pr_fix = rainfall*duration_coef(duration, ref_duration)
+            storm = (storm*pr_fix/storm.max()).diff().fillna(0)
+        else:
+            if not isinstance(rainfall, pd.Series):
+                rainfall = pd.Series(rainfall)
+            storm = [(storm*p*duration_coef(duration, ref_duration) /
+                      storm.max()).diff().fillna(0) for p in rainfall]
+            storm = pd.concat(storm, axis=1)
+            storm.columns = rainfall.index
         self.Hyetograph = storm
         return self
 
-    def plot(self, **kwargs):
-        """
-        Plot a simple time vs rain graph
+    # def plot(self, Losses_kwargs={}, **kwargs):
+    #     """
+    #     Plot a simple time vs rain graph
 
-        Raises:
-            RuntimeError: If a Hyetograph isnt already computed
-        """
-        if type(self.Hyetograph) != type(None):
-            self.Hyetograph.plot(color='tab:blue', **kwargs)
-        else:
-            raise RuntimeError('Compute a Hyetograph before plotting!')
-        if type(self.Losses) != type(None):
-            self.Losses.plot(color='tab:red', **kwargs)
+    #     Raises:
+    #         RuntimeError: If a Hyetograph isnt already computed
+    #     """
+    #     if type(self.Hyetograph) != type(None):
+    #         axes = self.Hyetograph.plot(**kwargs)
+    #         axes = axes.axes
+    #     else:
+    #         raise RuntimeError('Compute a Hyetograph before plotting!')
+    #     if type(self.Losses) != type(None):
+    #         self.Losses.plot(ax=axes, color='tab:red', legend=False,
+    #                          **Losses_kwargs)
