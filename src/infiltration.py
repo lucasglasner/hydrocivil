@@ -91,13 +91,12 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
             pr_eff = (pr-Ia)**2/(pr-Ia+S)
             pr_eff[pr <= Ia] = 0
         else:
-            if (type(weights) != type(None)) and (sum(weights) == 1):
+            if type(weights) != type(None):
                 pr_eff = [w*SCS_EffectiveRainfall(pr, cn_i, r, None, **kwargs)
                           for cn_i, w in zip(cn, weights)]
                 pr_eff = sum(pr_eff)
             else:
-                text = 'Weights must be added for each land class'
-                text = text+' (must add up to 1)'
+                text = 'Weights must be added for each land class!'
                 raise ValueError(text)
         return pr_eff
 
