@@ -437,9 +437,13 @@ class SynthUnitHydro(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self):
+    def compute(self, method):
         """
         Trigger calculation of desired unit hydrograph
+
+        Args:
+            method (str): Type of synthetic unit hydrograph
+                Options: SCS, Arteaga&Benitez, Gray
 
         Raises:
             ValueError: If give the class a wrong UH kind.
@@ -447,7 +451,7 @@ class SynthUnitHydro(object):
         Returns:
             (tuple): Unit hydrograph values and parameters.
         """
-        if self.method == 'SCS':
+        if method == 'SCS':
             params = ['area_km2', 'mriverlen_km', 'meanslope_1',
                       'curvenumber_1']
             params = self.basin_params[params]
@@ -455,7 +459,7 @@ class SynthUnitHydro(object):
                                     interp_kwargs=self.interp_kwargs,
                                     **params)
 
-        elif self.method == 'Arteaga&Benitez':
+        elif method == 'Arteaga&Benitez':
             params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
                       'meanslope_1', 'zone']
             params = self.basin_params[params]
@@ -463,7 +467,7 @@ class SynthUnitHydro(object):
                                                interp_kwargs=self.interp_kwargs,
                                                **params)
 
-        elif self.method == 'Gray':
+        elif method == 'Gray':
             params = ['area_km2', 'mriverlen_km', 'meanslope_1']
             params = self.basin_params[params]
             uh, uh_params = SUH_Gray(tstep=self.timestep,
@@ -471,7 +475,7 @@ class SynthUnitHydro(object):
                                      **params)
 
         else:
-            raise ValueError(f'method="{self.method}" not valid!')
+            raise ValueError(f'method="{method}" not valid!')
 
         self.UnitHydro, self.UnitHydroParams = uh, uh_params
         self.timestep = uh_params.tstep
