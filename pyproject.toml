@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hydrocivil"
+version = "0.1"
+authors = [
+  { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
+]
+dependencies = ["numpy", "matplotlib", "scipy", "pandas", "xarray",
+                "shapely", "geopandas", "rioxarray", "gdal"]
+description = "a package for hydrological methods in civil and enviromental engineering"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/lucasglasner/hydrocivil"
+Issues = "https://github.com/lucasglasner/hydrocivil/issues"
