@@ -13,7 +13,7 @@ import pandas as pd
 import xarray as xr
 import warnings
 
-from infiltration import SCS_Losses
+from .infiltration import SCS_Losses
 from scipy.interpolate import interp1d
 
 # ----------------------- duration coefficient routines ---------------------- #

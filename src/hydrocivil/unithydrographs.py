@@ -18,7 +18,7 @@ import geopandas as gpd
 from math import gamma
 from scipy.interpolate import interp1d
 
-from geomorphology import tc_SCS
+from .geomorphology import tc_SCS
 
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #

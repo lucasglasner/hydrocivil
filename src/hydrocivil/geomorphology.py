@@ -10,7 +10,7 @@
 import pandas as pd
 import numpy as np
 import warnings
-from infiltration import SCS_MaximumRetention
+from .infiltration import SCS_MaximumRetention
 from shapely.geometry import Point
 
 # ------------------------ Geomorphological properties ----------------------- #
