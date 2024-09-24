@@ -6,6 +6,14 @@ Typical tasks related to water resources and engineering require fast calculatio
 
 The package is largely oriented to Chilean standards, however many methods and formulas originally come from the USA NCRS National Engineering Handbook. By default, most of the routines use formulas widely used in the hydrological community and only optionally you can choose methods and alternatives from national (Chilean) standards. The package is 100% written in English in order to maintain consistency with the syntax and basic classes/functions of the Python language.
 
+## How to install
+
+Currently the package is stored in pypi so it can only be installed with pip, further work will include the project as a conda-forge repository.
+
+```shell
+pip install hydrocivil
+```
+
 ## References
 
 ```bib
