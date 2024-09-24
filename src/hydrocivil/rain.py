@@ -128,7 +128,7 @@ class DesignStorm(object):
                     'SCS_III24'
         """
         root_folder = os.path.dirname(os.path.abspath(__file__))
-        data_folder = os.path.join(os.path.dirname(root_folder), 'data')
+        data_folder = os.path.join(root_folder, 'resources')
         shyeto_path = os.path.join(data_folder, 'synthethic_storms.csv')
 
         shyeto = pd.read_csv(shyeto_path, index_col=0,
