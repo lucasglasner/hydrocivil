@@ -19,10 +19,10 @@ import xarray as xr
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
-from src.unithydrographs import SynthUnitHydro
-from src.geomorphology import *
-from src.misc import get_psep, raster_distribution
-from src.infiltration import cn_correction
+from unithydrographs import SynthUnitHydro
+from geomorphology import *
+from misc import get_psep, raster_distribution
+from infiltration import cn_correction
 
 # ---------------------------------------------------------------------------- #
 
