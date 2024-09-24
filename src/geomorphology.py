@@ -318,8 +318,8 @@ def tc_basin(params):
     Given the dataframe with basin parameters this function computes
     the concentration time with all the methods and merges them in a single
     table. If you want more methods for the concentration time just create 
-    a new function like the above and add them in the dataframe that is built
-    in here.
+    a new function like the ones above and add them in the dataframe that
+    is built in here.
 
     Args:
         params (DataFrame): pandas DataFrame with basin parameters
@@ -345,7 +345,8 @@ def tc_basin(params):
 
     # California concentration time
     basin_tc_california = tc_california(params.loc['mriverlen_km'],
-                                        params.loc['hmax_m'], params.loc['hmin_m'])
+                                        params.loc['hmax_m'],
+                                        params.loc['hmin_m'])
 
     # Spanish norms concentration time
     basin_tc_spain = tc_spain(params.loc['mriverlen_km'],
