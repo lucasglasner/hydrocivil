@@ -15,6 +15,7 @@ import warnings
 
 from src.infiltration import SCS_Losses
 from scipy.interpolate import interp1d
+
 # ----------------------- duration coefficient routines ---------------------- #
 
 
@@ -121,8 +122,15 @@ class DesignStorm(object):
                     'G2_Varas1985'
                     'G3_Varas1985'
                     'G4_Varas1985'
+                    'SCS_I24'
+                    'SCS_IA24'
+                    'SCS_II24'
+                    'SCS_III24'
         """
-        shyeto_path = os.path.join('data', 'synthethic_storms.csv')
+        root_folder = os.path.dirname(os.path.abspath(__file__))
+        data_folder = os.path.join(os.path.dirname(root_folder), 'data')
+        shyeto_path = os.path.join(data_folder, 'synthethic_storms.csv')
+
         shyeto = pd.read_csv(shyeto_path, index_col=0,
                              usecols=['time', kind])[kind]
         self.SynthHyetograph = shyeto
