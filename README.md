@@ -1,4 +1,4 @@
-<img src="logo.png" width=400 align='right'>
+<img src="logo.png" width=200 align='right'>
 
 ## hydrocivil: a package for hydrological methods in civil and enviromental engineering
 
