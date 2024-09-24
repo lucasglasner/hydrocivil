@@ -57,7 +57,7 @@ def main_river(river_network,
         return []
 
 
-def basin_geographical_params(fid, basin):
+def basin_geographical_params(fid, basin, outlet=None):
     """
     Given a basin id and a basin polygon as a geopandas object 
     this function computes the "geographical" or vector properties of
@@ -75,9 +75,15 @@ def basin_geographical_params(fid, basin):
     Returns:
         pandas.DataFrame: table with parameters
     """
+    if type(outlet) != type(None):
+        outlet_x, outlet_y = (outlet[0], outlet[1])
+        basin['outlet_x'] = outlet_x
+        basin['outlet_y'] = outlet_y
+
     if not (('outlet_x' in basin.columns) or ('outlet_y' in basin.columns)):
         error = 'Basin polyugon attribute table must have'
-        error = error+' an "outlet_x" and "outlet_y" columns'
+        error = error+' an "outlet_x" and "outlet_y" columns.'
+        error = error+'If not, use the outlet argument.'
         raise RuntimeError(error)
 
     params = pd.DataFrame([], index=[fid])
@@ -313,7 +319,7 @@ def tc_spain(basin_mriverlen_km,
     return Tc
 
 
-def tc_basin(params):
+def concentration_time(params):
     """
     Given the dataframe with basin parameters this function computes
     the concentration time with all the methods and merges them in a single
