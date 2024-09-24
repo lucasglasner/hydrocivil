@@ -437,13 +437,13 @@ class SynthUnitHydro(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, method):
+    def compute(self, method=None):
         """
         Trigger calculation of desired unit hydrograph
 
         Args:
             method (str): Type of synthetic unit hydrograph
-                Options: SCS, Arteaga&Benitez, Gray
+                Options: SCS, Arteaga&Benitez, Gray.
 
         Raises:
             ValueError: If give the class a wrong UH kind.
@@ -451,6 +451,8 @@ class SynthUnitHydro(object):
         Returns:
             (tuple): Unit hydrograph values and parameters.
         """
+        if type(method) == type(None):
+            method = self.method
         if method == 'SCS':
             params = ['area_km2', 'mriverlen_km', 'meanslope_1',
                       'curvenumber_1']
