@@ -8,12 +8,17 @@
  '''
 
 from . import misc
+from . import infiltration
 from . import geomorphology
 from . import unithydrographs
-from . import infiltration
 from . import rain
 from . import watersheds
 
 
-__all__ = ['geomorphology', 'infiltration', 'watersheds',
-           'rain', 'unithydrographs', 'misc']
+__all__ = ['misc',
+           'infiltration',
+           'geomorphology',
+           'rain',
+           'unithydrographs',
+           'watersheds'
+           ]
