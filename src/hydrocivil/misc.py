@@ -63,8 +63,38 @@ def raster_distribution(raster, **kwargs):
     dist, values = dist/total_pixels, 0.5*(values[:-1]+values[1:])
     return pd.Series(dist, index=values, name=f'{raster.name}_dist')
 
+# ----------------------------- resources access ----------------------------- #
+
+
+def load_example_data():
+    """
+    Load base example data
+    Returns:
+        (tuple): (basin polygon, river network segments, dem, curve_number)
+    """
+    try:
+        import geopandas as gpd
+        import rioxarray as rxr
+    except Exception as e:
+        print(e)
+
+    root_folder = os.path.dirname(os.path.abspath(__file__))
+    data_folder = os.path.join(root_folder, 'resources', 'RioGomez')
+    basin_path = os.path.join(data_folder, 'Cuenca_RioGomez_v0.shp')
+    rivers_path = os.path.join(data_folder, 'rnetwork_RioGomez_v0.shp')
+    dem_path = os.path.join(data_folder, 'DEM_ALOSPALSAR_RioGomez_v0.tif')
+    cn_path = os.path.join(data_folder, 'CurveNumber_RioGomez_v0.tif')
+
+    basin = gpd.read_file(basin_path)
+    rivers = gpd.read_file(rivers_path)
+    dem = rxr.open_rasterio(dem_path, masked=True).squeeze()
+    cn = rxr.open_rasterio(cn_path, masked=True).squeeze()
+    dem.name = 'elevation'
+    cn.name = 'cn'
+    return (basin, rivers, dem, cn)
 
 # ----------------------------------- other ---------------------------------- #
+
 
 def get_psep():
     """

@@ -139,15 +139,14 @@ class RiverBasin(object):
         Returns:
             xarray.DataArray: DEM derived property
         """
-        psep = get_psep()
-        iname = self.dem.elevation.encoding['source']
-        oname = self.dem.elevation.encoding['source'].split(psep)
-        oname = f'{psep}'.join(oname[:-1])+f'{psep}{varname}_'+oname[-1]
+        ipath = os.path.abspath(self.dem.elevation.encoding['source'])
+        fname = os.path.basename(self.dem.elevation.encoding['source'])
+        oname = os.path.join(os.path.dirname(ipath), f'{varname}_{fname}')
         if os.path.isfile(oname) and overwrite:
             field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
             field = field.squeeze().to_dataset(name=varname)
         else:
-            gdal.DEMProcessing(oname, iname, varname, **kwargs)
+            gdal.DEMProcessing(oname, ipath, varname, **kwargs)
             field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
             field = field.squeeze().to_dataset(name=varname)
         return field

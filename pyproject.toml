@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydrocivil"
-version = "0.8"
+version = "0.0"
 authors = [
   { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
 ]
 dependencies = ["numpy", "matplotlib", "scipy", "pandas", "xarray",
-                "shapely", "geopandas", "rioxarray", "gdal"]
+                "shapely", "geopandas", "rioxarray"]
 description = "a package for hydrological methods in civil and enviromental engineering"
 readme = "README.md"
 requires-python = ">=3.8"
