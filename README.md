@@ -8,13 +8,13 @@ The package is largely oriented to Chilean standards, however many methods and f
 
 ## How to install
 
-Currently the package is stored in TestPyPI so it can only be installed with the following command: 
+Currently the package can only be installed via pip:
 
 ```shell
-python3 -m pip install --index-url https://test.pypi.org/simple/ --no-deps hydrocivil
+pip install --force-reinstall hydrocivil
 ```
 
-further work will include the project as a full PyPI and conda-forge repository.
+further work will include the project as a full conda-forge repository.
 
 ## References
 
