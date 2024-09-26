@@ -7,24 +7,14 @@
  # @ Dependencies:
  '''
 
-from .misc import (raster_distribution)
-
-from .infiltration import (cn_correction, SCS_MaximumRetention,
-                           SCS_EffectiveRainfall, SCS_Losses)
-
-from .geomorphology import (main_river, concentration_time)
+from . import misc
+from . import infiltration
+from . import geomorphology
 from . import unithydrographs
-from .rain import (duration_coef, DesignStorm)
-from .watersheds import RiverBasin
+from . import rain
+from . import watersheds
+from . import web
 
 
-__all__ = ['raster_distribution',
-           'cn_correction',
-           'SCS_MaximumRetention',
-           'SCS_EffectiveRainfall',
-           'SCS_Losses',
-           'main_river', 'concentration_time',
-           'unithydrographs',
-           'duration_coef', 'DesignStorm',
-           'RiverBasin'
-           ]
+__all__ = ['misc', 'infiltration', 'geomorphology', 'unithydrographs',
+           'rain', 'watersheds', 'web']

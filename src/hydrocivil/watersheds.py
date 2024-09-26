@@ -20,8 +20,9 @@ from osgeo import gdal
 from scipy.interpolate import interp1d
 
 from .unithydrographs import SynthUnitHydro
-from .geomorphology import *
-from .misc import get_psep, raster_distribution
+from .geomorphology import main_river, concentration_time
+from .geomorphology import basin_geographical_params, basin_terrain_params
+from .misc import raster_distribution
 from .infiltration import cn_correction
 
 # ---------------------------------------------------------------------------- #
@@ -151,7 +152,7 @@ class RiverBasin(object):
             field = field.squeeze().to_dataset(name=varname)
         return field
 
-    def process_hypsometric_curve(self, bins='auto', **kwargs):
+    def get_hypsometric_curve(self, bins='auto', **kwargs):
         """
         Based on terrain, compute hypsometric curve of the basin
 
@@ -176,7 +177,7 @@ class RiverBasin(object):
         """
         if len(self.hypsometric_curve) == 0:
             warnings.warn('Computing hypsometric curve ...')
-            self.process_hypsometric_curve(**kwargs)
+            self.get_hypsometric_curve(**kwargs)
         curve = self.hypsometric_curve
         if height < curve.index.min():
             return 0
@@ -209,7 +210,7 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            curve = self.process_hypsometric_curve()
+            curve = self.get_hypsometric_curve()
             slope = self.process_gdaldem('slope',
                                          computeEdges=True,
                                          slopeFormat='percent',
@@ -323,9 +324,8 @@ class RiverBasin(object):
             gdal_kwargs (dict, optional): 
                 Additional arguments for the slope computing function.
                 Defaults to {}.
-
         Returns:
-            pandas.DataFrame: Table with basin geomorphological properties
+            self: updated class
         """
         if self.params.shape != (1, 0):
             self.params = pd.DataFrame([], index=[self.fid])
@@ -356,9 +356,8 @@ class RiverBasin(object):
             method (str): Type of synthetic unit hydrograph to use. 
                 Options: 'SCS', 'Gray', 'Arteaga&Benitez', 
             timestep (float): unit hydrograph timestep. 
-
         Returns:
-            _type_: _description_
+            self: updated class
         """
         SUH = SynthUnitHydro(self.params[self.fid], method, **kwargs).compute()
         self.UnitHydro = SUH
@@ -375,6 +374,9 @@ class RiverBasin(object):
                 Defaults to {}.
             rivers_main_kwargs (dict, optional): Arguments for the main rivers.
                 Defaults to {}.
+
+        Returns:
+            matplotlib axes instance
         """
         plot_basin = self.basin.plot(color='silver', edgecolor='k',
                                      **basin_kwargs)

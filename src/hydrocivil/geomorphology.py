@@ -319,53 +319,31 @@ def tc_spain(basin_mriverlen_km,
     return Tc
 
 
-def concentration_time(params):
+def concentration_time(method, **kwargs):
     """
-    Given the dataframe with basin parameters this function computes
-    the concentration time with all the methods and merges them in a single
-    table. If you want more methods for the concentration time just create 
-    a new function like the ones above and add them in the dataframe that
-    is built in here.
+    General function for computing the concentration time with different
+    formulas.
 
     Args:
-        params (DataFrame): pandas DataFrame with basin parameters
+        method (str): Concentration time formula:
+            Options:
+                California, Giandotti, Kirpich, SCS, Spain, 
+
+    Raises:
+        ValueError: If user asks for an unkown method
 
     Returns:
-        (DataFrame): Basin concentration times computed with different methods.
+        (float): Concentration time (minutes)
     """
-    params = params.copy()
-    # SCS concentration time
-    basin_tc_SCS = tc_SCS(params.loc['mriverlen_km'],
-                          params.loc['meanslope_1'],
-                          params.loc['curvenumber_1'])
-
-    # Kirpich concentration time
-    basin_tc_kirpich = tc_kirpich(params.loc['mriverlen_km'],
-                                  params.loc['hmax_m'], params.loc['hmin_m'])
-
-    # Giandotti concentration time
-    basin_tc_giandotti = tc_giandotti(params.loc['mriverlen_km'],
-                                      params.loc['hmed_m'],
-                                      params.loc['hmin_m'],
-                                      params.loc['area_km2'])
-
-    # California concentration time
-    basin_tc_california = tc_california(params.loc['mriverlen_km'],
-                                        params.loc['hmax_m'],
-                                        params.loc['hmin_m'])
-
-    # Spanish norms concentration time
-    basin_tc_spain = tc_spain(params.loc['mriverlen_km'],
-                              params.loc['meanslope_1'])
-
-    basin_tcs = pd.concat([basin_tc_SCS,
-                           basin_tc_kirpich,
-                           basin_tc_giandotti,
-                           basin_tc_california,
-                           basin_tc_spain], axis=1)
-    basin_tcs.columns = ['tc_SCS_hr',
-                         'tc_kirpich_hr',
-                         'tc_giandotti_hr',
-                         'tc_california_hr',
-                         'tc_spain_hr']
-    return basin_tcs
+    if method == 'California':
+        return tc_california(**kwargs)
+    elif method == 'Giandotti':
+        return tc_giandotti(**kwargs)
+    elif method == 'Kirpich':
+        return tc_kirpich(**kwargs)
+    elif method == 'SCS':
+        return tc_SCS(**kwargs)
+    elif method == 'Spain':
+        return tc_spain(**kwargs)
+    else:
+        raise ValueError(f'"{method}": Unknown method!')
