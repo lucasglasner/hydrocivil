@@ -24,7 +24,7 @@ from .geomorphology import tc_SCS
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
 
 
-def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
+def SUH_SCS(area, mriverlen, meanslope, curvenumber,
             tstep, interp_kwargs={'kind': 'quadratic'}):
     """
     U.S.A Soil Conservation Service (SCS) synthetic unit hydrograph
@@ -47,10 +47,10 @@ def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
         Transactions American Geophysical Union, 19(1), 447-454.
 
     Args:
-        area_km2 (float): Basin area (km2)
-        mriverlen_km (float): Main channel length (km)
-        meanslope_1 (float): Basin mean slope (m/m)
-        curvenumber_1 (float): Basin curve number (dimensionless)
+        area (float): Basin area (km2)
+        mriverlen (float): Main channel length (km)
+        meanslope (float): Basin mean slope (m/m)
+        curvenumber (float): Basin curve number (dimensionless)
         tstep (float): Unit hydrograph discretization time step in hours. 
         kind (str): Specifies the kind of interpolation as a string or as
             an integer specifying the order of the spline interpolator to use.
@@ -76,9 +76,9 @@ def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
                0.029, 0.021, 0.015, 0.011, 0.005, 0.000]
     q_shape = np.array(q_shape)
     # Unit hydrograph paremeters
-    tp = (tc_SCS(mriverlen_km, meanslope_1, curvenumber_1)/60)*0.6+tstep/2
+    tp = (tc_SCS(mriverlen, meanslope, curvenumber)/60)*0.6+tstep/2
     tb = 2.67*tp
-    qp = 0.208*area_km2/tp
+    qp = 0.208*area/tp
     uh = pd.Series(qp*q_shape, index=t_shape*tp)
 
     # Interpolate to new time resolution
@@ -90,7 +90,7 @@ def SUH_SCS(area_km2, mriverlen_km, meanslope_1, curvenumber_1,
     uh = uh.where(uh > 0).fillna(0)
 
     # Ensure that the unit hydrograph acummulates a volume of 1mm
-    volume = np.trapz(uh, uh.index*3600)/1e6/area_km2*1e3
+    volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
     uh = uh/volume
     params = (qp, tp, tb, tstep)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tbase', 'tstep'])
@@ -125,7 +125,7 @@ def tstep_correction(tstep, tp):
         return tstep, tp
 
 
-def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
+def SUH_Gray(area, mriverlen, meanslope, tstep,
              interp_kwargs={'kind': 'quadratic'}):
     """ 
     Gray method for Synthethic Unit Hydrograph (SUH). This method assumes a SUH
@@ -147,9 +147,9 @@ def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
 
 
     Args:
-        area_km2 (float): Basin area (km2)
-        mriverlen_km (float): Main channel length (km)
-        meanslope_1 (float): Basin mean slope (m/m)
+        area (float): Basin area (km2)
+        mriverlen (float): Main channel length (km)
+        meanslope (float): Basin mean slope (m/m)
         tstep (float): Unit hydrograph target unitary time (tu) in hours. 
         interp_kwargs (dict): args to scipy.interpolation.interp1d function.
     """
@@ -179,8 +179,8 @@ def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
         y = 2.68/(1-0.34*a)
         return y
 
-    y = Gray_gamma_param(mriverlen_km, meanslope_1)
-    tp = Gray_peaktime(mriverlen_km, meanslope_1)
+    y = Gray_gamma_param(mriverlen, meanslope)
+    tp = Gray_peaktime(mriverlen, meanslope)
     tstep, tp = tstep_correction(tstep, tp)
     # tstep = tp/5.5
 
@@ -188,7 +188,7 @@ def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
     q_shape = 25*y**(y+1)*np.exp(-y*t_shape)*(t_shape)**(y)/gamma(y+1)
 
     uh = pd.Series(q_shape, index=t_shape*tp)
-    uh = uh*area_km2/360/(0.25*tp)
+    uh = uh*area/360/(0.25*tp)
     mask = uh < 1e-4
     mask[0] = False
     uh = uh.where(~mask).dropna()
@@ -203,7 +203,7 @@ def SUH_Gray(area_km2, mriverlen_km, meanslope_1, tstep,
     uh = uh.where(uh > 0).fillna(0)
 
     # Ensure that the unit hydrograph acummulates a volume of 1mm
-    volume = np.trapz(uh, uh.index*3600)/1e6/area_km2*1e3
+    volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
     uh = uh/volume
     params = (uh.max(), tp, tstep)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tstep'])
@@ -258,7 +258,7 @@ def ArteagaBenitez_zone(region):
         raise RuntimeError(f'Region: "{region}" invalid')
 
 
-def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
+def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
                        zone, tstep, interp_kwargs={'kind': 'quadratic'}):
     """
     Arteaga & Benitez Synthetic Unit Hydrograph, using Linsley formulas. 
@@ -292,11 +292,11 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
         Empresa Nacional de Electricidad S.A (1985).
 
     Args:
-        area_km2 (float): Basin area (km2)
-        mriverlen_km (float): Main channel length (km)
-        out2centroidlen_km (float): Distance from basin outlet
+        area (float): Basin area (km2)
+        mriverlen (float): Main channel length (km)
+        out2centroidlen (float): Distance from basin outlet
                                  to basin centroid (km)
-        meanslope_1 (float): Basin mean slope (m/m)
+        meanslope (float): Basin mean slope (m/m)
         zone (str): "I", "II", "III", "IV".
             Where Type IV for the deep Atacama Desert, 
                 Type I for Semi-arid Chile
@@ -332,8 +332,8 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
 
     coeffs = SUH_ArteagaBenitez_Coefficients().loc[zone]
     tp = coeffs['Ct']
-    tp = tp * (mriverlen_km*out2centroidlen_km /
-               np.sqrt(meanslope_1))**coeffs['nt']
+    tp = tp * (mriverlen*out2centroidlen /
+               np.sqrt(meanslope))**coeffs['nt']
 
     # Adjust storm duration to the UH timestep
     # tstep, tpR = tstep_correction(tstep, tp)
@@ -362,16 +362,16 @@ def SUH_ArteagaBenitez(area_km2, mriverlen_km, out2centroidlen_km, meanslope_1,
     # Ensure that the unit hydrograph acummulates a volume of 1mm
     volume = np.trapz(uh, uh.index*3600)/1e6  # mm
     uh = uh/volume
-    params = (qpR/volume*area_km2/1e3, tpR, tbR, tstep)
+    params = (qpR/volume*area/1e3, tpR, tbR, tstep)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tbase', 'tstep'])
     uh.name, params.name = 'A&B_m3 s-1 mm-1', 'Params_A&B'
-    return uh*area_km2/1e3, params
+    return uh*area/1e3, params
 
 # -------------------------------- MAIN CLASS -------------------------------- #
 
 
 class SynthUnitHydro(object):
-    def __init__(self, basin_params, method, timestep=10/60,
+    def __init__(self, basin_params, method, timestep=30/60,
                  interp_kwargs={'kind': 'quadratic'}):
         """
         Synthetic unit hydrograph (SUH) constructor.
@@ -381,7 +381,7 @@ class SynthUnitHydro(object):
                 Options: 'SCS', 'Arteaga&Benitez' or 'Gray'
             basin_params (dict): Dictionary with input parameters. 
             timestep (float): unit hydrograph timestep.
-                Default to 10/60 hours (10min)
+                Default to 30/60 hours (30min)
         """
         self.method = method
         self.basin_params = pd.Series(basin_params)
@@ -454,23 +454,22 @@ class SynthUnitHydro(object):
         if type(method) == type(None):
             method = self.method
         if method == 'SCS':
-            params = ['area_km2', 'mriverlen_km', 'meanslope_1',
-                      'curvenumber_1']
+            params = ['area', 'mriverlen', 'meanslope', 'curvenumber']
             params = self.basin_params[params]
             uh, uh_params = SUH_SCS(tstep=self.timestep,
                                     interp_kwargs=self.interp_kwargs,
                                     **params)
 
         elif method == 'Arteaga&Benitez':
-            params = ['area_km2', 'mriverlen_km', 'out2centroidlen_km',
-                      'meanslope_1', 'zone']
+            params = ['area', 'mriverlen', 'out2centroidlen', 'meanslope',
+                      'zone']
             params = self.basin_params[params]
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
                                                interp_kwargs=self.interp_kwargs,
                                                **params)
 
         elif method == 'Gray':
-            params = ['area_km2', 'mriverlen_km', 'meanslope_1']
+            params = ['area', 'mriverlen', 'meanslope']
             params = self.basin_params[params]
             uh, uh_params = SUH_Gray(tstep=self.timestep,
                                      interp_kwargs=self.interp_kwargs,

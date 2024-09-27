@@ -23,7 +23,7 @@ from .unithydrographs import SynthUnitHydro
 from .geomorphology import main_river, concentration_time
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .misc import raster_distribution
-from .infiltration import cn_correction
+from .abstractions import cn_correction
 
 # ---------------------------------------------------------------------------- #
 
@@ -245,11 +245,7 @@ class RiverBasin(object):
                 mriverlen = mriverlen.item()
             else:
                 mriverlen = np.nan
-            self.params['mriverlen_km'] = mriverlen
-            rhod = self.rivers.length.sum()/self.params['area_km2']/1e3
-            Kf = self.params['area_km2']/(self.params['mriverlen_km']**2)
-            self.params['rhod_1'] = rhod
-            self.params['Kf_1'] = Kf
+            self.params['mriverlen'] = mriverlen
         except Exception as e:
             warnings.warn('Flow derived properties Error:', e, self.fid)
         return self
@@ -341,7 +337,7 @@ class RiverBasin(object):
 
         # Curve number process
         self.cn_counts = self.process_raster_counts(self.cn)
-        self.params['curvenumber_1'] = self.cn.mean().item()
+        self.params['curvenumber'] = self.cn.mean().item()
         self.params = self.params.T.astype(object)
 
         # self.params = pd.concat([self.params.T, cn_counts], axis=0)

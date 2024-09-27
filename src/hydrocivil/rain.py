@@ -13,7 +13,7 @@ import pandas as pd
 import xarray as xr
 import warnings
 
-from .infiltration import SCS_Losses
+from .abstractions import SCS_Abstractions
 from scipy.interpolate import interp1d
 
 # ----------------------- duration coefficient routines ---------------------- #
@@ -170,7 +170,7 @@ class DesignStorm(object):
         storm = self.Hyetograph
         if method == 'SCS':
             storm_cum = storm.cumsum()
-            losses = SCS_Losses(storm_cum, **kwargs)
+            losses = SCS_Abstractions(storm_cum, **kwargs)
             self.Losses = losses.diff().fillna(0)
             self.Effective_Hyetograph = self.Hyetograph-self.Losses
         else:

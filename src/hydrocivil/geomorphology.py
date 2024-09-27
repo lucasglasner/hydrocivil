@@ -10,7 +10,7 @@
 import pandas as pd
 import numpy as np
 import warnings
-from .infiltration import SCS_MaximumRetention
+from .abstractions import SCS_MaximumRetention
 from shapely.geometry import Point
 
 # ------------------------ Geomorphological properties ----------------------- #
@@ -91,14 +91,14 @@ def basin_geographical_params(fid, basin, outlet=None):
     params['outlet_y'] = basin.outlet_y.item()
     params['centroid_x'] = basin.centroid.x.item()
     params['centroid_y'] = basin.centroid.y.item()
-    params['area_km2'] = basin.area.item()/1e6
-    params['perim_km'] = basin.boundary.length.item()/1e3
+    params['area'] = basin.area.item()/1e6
+    params['perim'] = basin.boundary.length.item()/1e3
 
     # Outlet to centroid
     outlet = Point(basin.outlet_x.item(),
                    basin.outlet_y.item())
     out2cen = basin.centroid.distance(outlet)
-    params['out2centroidlen_km'] = out2cen.item()/1e3
+    params['out2centroidlen'] = out2cen.item()/1e3
 
     return params
 
@@ -118,14 +118,14 @@ def terrain_exposure(aspect, fid=0):
     """
     # Direction of exposure
     direction_ranges = {
-        'N_exposure_%': (337.5, 22.5),
-        'S_exposure_%': (157.5, 202.5),
-        'E_exposure_%': (67.5, 112.5),
-        'W_exposure_%': (247.5, 292.5),
-        'NE_exposure_%': (22.5, 67.5),
-        'SE_exposure_%': (112.5, 157.5),
-        'SW_exposure_%': (202.5, 247.5),
-        'NW_exposure_%': (292.5, 337.5),
+        'N_exposure': (337.5, 22.5),
+        'S_exposure': (157.5, 202.5),
+        'E_exposure': (67.5, 112.5),
+        'W_exposure': (247.5, 292.5),
+        'NE_exposure': (22.5, 67.5),
+        'SE_exposure': (112.5, 157.5),
+        'SW_exposure': (202.5, 247.5),
+        'NW_exposure': (292.5, 337.5),
     }
     # Calculate percentages for each direction
     tot_pixels = np.size(aspect.values) - \
@@ -144,7 +144,7 @@ def terrain_exposure(aspect, fid=0):
                 aspect.values <= max_angle)
 
         direction_pixels = np.sum(exposure)
-        dir_perc[direction] = (direction_pixels/tot_pixels)*100
+        dir_perc[direction] = (direction_pixels/tot_pixels)
     dir_perc = pd.DataFrame(dir_perc.values(),
                             index=dir_perc.keys(),
                             columns=[fid]).T
@@ -175,16 +175,16 @@ def basin_terrain_params(fid, dem):
     params = pd.DataFrame([], index=[fid])
 
     # Height parameters
-    params['hmin_m'] = dem.elevation.min().item()
-    params['hmax_m'] = dem.elevation.max().item()
-    params['hmean_m'] = dem.elevation.mean().item()
-    params['hmed_m'] = dem.elevation.median().item()
-    params['deltaH_m'] = params['hmax_m']-params['hmin_m']
-    params['deltaHm_m'] = params['hmean_m']-params['hmin_m']
+    params['hmin'] = dem.elevation.min().item()
+    params['hmax'] = dem.elevation.max().item()
+    params['hmean'] = dem.elevation.mean().item()
+    params['hmed'] = dem.elevation.median().item()
+    params['deltaH'] = params['hmax']-params['hmin']
+    params['deltaHm'] = params['hmean']-params['hmin']
 
     # Slope parameters
     if 'slope' in dem.variables:
-        params['meanslope_1'] = dem.slope.mean().item()
+        params['meanslope'] = dem.slope.mean().item()
     else:
         warnings.warn('"slope" variable doesnt exists in the dataset!')
 
@@ -199,9 +199,9 @@ def basin_terrain_params(fid, dem):
 # -------------------- Concentration time for rural basins ------------------- #
 
 
-def tc_SCS(basin_mriverlen_km,
-           basin_meanslope_1,
-           curvenumber_1):
+def tc_SCS(mriverlen,
+           meanslope,
+           curvenumber):
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -211,25 +211,25 @@ def tc_SCS(basin_mriverlen_km,
         Unitaded States Deprtment of Agriculture.
 
     Args:
-        basin_mriverlen_km (float): Main river length in (km)
-        basin_meanslope_1 (float): Basin mean slope in m/m
-        curvenumber_1 (float): Basin curve number (dimensionless)
+        mriverlen (float): Main river length in (km)
+        meanslope (float): Basin mean slope in m/m
+        curvenumber (float): Basin curve number (dimensionless)
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    mriverlen_ft = 3280.84*basin_mriverlen_km
-    potentialstorage_inch = SCS_MaximumRetention(curvenumber_1, cfactor=1)
-    slope_perc = basin_meanslope_1*100
+    mriverlen_ft = 3280.84*mriverlen
+    potentialstorage_inch = SCS_MaximumRetention(curvenumber, cfactor=1)
+    slope_perc = meanslope*100
     numerator = mriverlen_ft**0.8*((potentialstorage_inch+1) ** 0.7)
     denominator = 1140*slope_perc**0.5
     Tc = numerator/denominator*60  # 60 minutes = 1 hour
     return Tc
 
 
-def tc_kirpich(basin_mriverlen_km,
-               basin_hmax_m,
-               basin_hmin_m):
+def tc_kirpich(mriverlen,
+               hmax,
+               hmin):
     """
     Kirpich equation method.
     Valid for small and rural basins ¿?.
@@ -238,22 +238,22 @@ def tc_kirpich(basin_mriverlen_km,
         ???
 
     Args:
-        basin_mriverlen_km (float): Main river length in (km)
-        basin_hmax_m (float): Basin maximum height (m)
-        basin_hmin_m (float): Basin minimum height (m)
+        mriverlen (float): Main river length in (km)
+        hmax (float): Basin maximum height (m)
+        hmin (float): Basin minimum height (m)
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    basin_deltaheights_m = basin_hmax_m-basin_hmin_m
-    Tc = ((1000*basin_mriverlen_km)**1.15)/(basin_deltaheights_m**0.385)/51
+    deltaheights = hmax-hmin
+    Tc = ((1000*mriverlen)**1.15)/(deltaheights**0.385)/51
     return Tc
 
 
-def tc_giandotti(basin_mriverlen_km,
-                 basin_hmean_m,
-                 basin_hmin_m,
-                 basin_area_km2):
+def tc_giandotti(mriverlen,
+                 hmean,
+                 hmin,
+                 area):
     """
     Giandotti equation method.
     Valid for small basins (< 20km2) with high slope (>10%) ¿?. 
@@ -262,23 +262,23 @@ def tc_giandotti(basin_mriverlen_km,
         ???
 
     Args:
-        basin_mriverlen_km (float): Main river length in (km)
-        basin_hmean_m (float): Basin mean height (meters)
-        basin_hmin_m (float): Basin minimum height (meters)
-        basin_area_km2 (float): Basin area (km2)
+        mriverlen (float): Main river length in (km)
+        hmean (float): Basin mean height (meters)
+        hmin (float): Basin minimum height (meters)
+        area (float): Basin area (km2)
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    a = (4*basin_area_km2**0.5+1.5*basin_mriverlen_km)
-    b = (0.8*(basin_hmean_m-basin_hmin_m)**0.5)
+    a = (4*area**0.5+1.5*mriverlen)
+    b = (0.8*(hmean-hmin)**0.5)
     Tc = 60*a/b
     return Tc
 
 
-def tc_california(basin_mriverlen_km,
-                  basin_hmax_m,
-                  basin_hmin_m):
+def tc_california(mriverlen,
+                  hmax,
+                  hmin):
     """
     California Culverts Practice (1942) equation.
     Valid for mountain basins ¿?.
@@ -287,21 +287,21 @@ def tc_california(basin_mriverlen_km,
         ???
 
     Args:
-        basin_mriverlen_km (float): Main river length in (km)
-        basin_hmax_m (float): Basin maximum height (m)
-        basin_hmin_m (float): Basin minimum height (m)
+        mriverlen (float): Main river length in (km)
+        hmax (float): Basin maximum height (m)
+        hmin (float): Basin minimum height (m)
 
     Returns:
         Tc (float): Concentration time (minutes)
 
     """
-    basin_deltaheights_m = basin_hmax_m-basin_hmin_m
-    Tc = 57*(basin_mriverlen_km**3/basin_deltaheights_m)**0.385
+    deltaheights = hmax-hmin
+    Tc = 57*(mriverlen**3/deltaheights)**0.385
     return Tc
 
 
-def tc_spain(basin_mriverlen_km,
-             basin_meanslope_1):
+def tc_spain(mriverlen,
+             meanslope):
     """
     Equation of Spanish/Spain regulation.
 
@@ -309,13 +309,13 @@ def tc_spain(basin_mriverlen_km,
         ???
 
     Args:
-        basin_mriverlen_km (float): Main river length in (km)
-        basin_meanslope_1 (float): Basin mean slope in m/m
+        mriverlen (float): Main river length in (km)
+        meanslope (float): Basin mean slope in m/m
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    Tc = 18*(basin_mriverlen_km**0.76)/((basin_meanslope_1*100)**0.19)
+    Tc = 18*(mriverlen**0.76)/((meanslope*100)**0.19)
     return Tc
 
 
