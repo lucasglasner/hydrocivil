@@ -32,7 +32,7 @@ def get_main_river(river_network):
         (GeoDataFrame): Main river extracted from the river network
     """
     # Get network connectivity information
-    river_network = river_network.explode(index_parts=True)
+    river_network = river_network.explode(index_parts=False)
     start_node = river_network.geometry.apply(lambda g: Point(g.coords[0]))
     end_node = river_network.geometry.apply(lambda g: Point(g.coords[-1]))
     weight = river_network.length
@@ -45,7 +45,7 @@ def get_main_river(river_network):
 
     # Get the main river segments
     main_river = nx.dag_longest_path(G)
-    mask = start_node.map(lambda s: s in main_river).values
+    mask = start_node.isin(main_river)
     main_river = river_network.loc[mask]
     return main_river
 
