@@ -12,13 +12,12 @@ import numpy as np
 import warnings
 from .abstractions import SCS_MaximumRetention
 from shapely.geometry import Point
+import networkx as nx
 
 # ------------------------ Geomorphological properties ----------------------- #
 
 
-def main_river(river_network,
-               node_a='NODE_A', node_b='NODE_B',
-               weight='LENGTH'):
+def get_main_river(river_network):
     """
     For a given river network (shapefile with segments and connectivity
     information) this functions creates a graph with the river network
@@ -29,32 +28,26 @@ def main_river(river_network,
 
     Args:
         river_network (GeoDataFrame): River network (lines)
-        node_a (str): Column name with the starting ID of each segment
-            Defalts to 'NODE_A' (Attribute by SAGA-GIS)
-        node_b (str): Column name with the ending ID of each segment
-            Defalts to 'NODE_B' (Attribute by SAGA-GIS)
-        weight (str): Column name with segment weight
-            Defalts to 'LENGTH' (Attribute by SAGA-GIS)
     Returns:
         (GeoDataFrame): Main river extracted from the river network
     """
-    import networkx as nx
-    # Create River Network Graph
-    try:
-        G = nx.DiGraph()
-        for a, b, leng in zip(river_network[node_a],
-                              river_network[node_b],
-                              river_network[weight]):
-            G.add_edge(a, b, weight=leng)
+    # Get network connectivity information
+    river_network = river_network.explode(index_parts=True)
+    start_node = river_network.geometry.apply(lambda g: Point(g.coords[0]))
+    end_node = river_network.geometry.apply(lambda g: Point(g.coords[-1]))
+    weight = river_network.length
+    ids = river_network.index
 
-        # Get the main river segments
-        main_river = nx.dag_longest_path(G)
-        mask = river_network[node_a].map(lambda s: s in main_river)
-        main_river = river_network.loc[mask]
-        return main_river
-    except Exception as e:
-        warnings.warn('Couldnt compute main river:', e)
-        return []
+    # Create River Network Graph
+    G = nx.DiGraph()
+    for n, a, b, w in zip(ids, start_node, end_node, weight):
+        G.add_edge(a, b, index=n, weight=w)
+
+    # Get the main river segments
+    main_river = nx.dag_longest_path(G)
+    mask = start_node.map(lambda s: s in main_river).values
+    main_river = river_network.loc[mask]
+    return main_river
 
 
 def basin_geographical_params(fid, basin, outlet=None):

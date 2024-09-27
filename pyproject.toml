@@ -9,7 +9,7 @@ authors = [
   { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
 ]
 dependencies = ["numpy", "matplotlib", "scipy", "pandas", "xarray",
-                "shapely", "geopandas", "rioxarray"]
+                "shapely", "geopandas", "rioxarray", "networkx"]
 description = "a package for hydrological methods in civil and enviromental engineering"
 readme = "README.md"
 requires-python = ">=3.8"

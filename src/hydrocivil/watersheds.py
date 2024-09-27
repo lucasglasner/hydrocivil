@@ -20,7 +20,7 @@ from osgeo import gdal
 from scipy.interpolate import interp1d
 
 from .unithydrographs import SynthUnitHydro
-from .geomorphology import main_river, concentration_time
+from .geomorphology import get_main_river, concentration_time
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .misc import raster_distribution
 from .abstractions import cn_correction
@@ -53,7 +53,7 @@ class RiverBasin(object):
             error = prj_error.format('Curve Number raster')
             raise RuntimeError(error)
 
-    def __init__(self, fid, basin, rivers, dem, cn, amc='II'):
+    def __init__(self, fid, basin, rivers, dem, cn=None, amc='II'):
         """
         Drainage Basin class constructor
 
@@ -63,6 +63,7 @@ class RiverBasin(object):
             rivers (GeoDataFrame): River network segments
             dem (xarray.DataArray): Digital elevation model
             cn (xarray.DataArray): Curve Number raster.
+                Defaults to None which leads to a full NaN curve number raster
             amc (str): Antecedent moisture condition. Defaults to 'II'. 
             Options: 'dry' or 'I',
                      'normal' or 'II'
@@ -72,7 +73,6 @@ class RiverBasin(object):
             RuntimeError: If any of the given spatial data isnt in a projected
                 cartographic projection.
         """
-        self.tests(basin, rivers, dem, cn)
         # ID
         self.fid = fid
 
@@ -87,9 +87,12 @@ class RiverBasin(object):
         self.dem.encoding = dem.encoding
 
         # Curve Number
-        self.cn = cn.rio.write_nodata(-9999).squeeze()
-        self.cn = cn_correction(self.cn, amc=amc)
-        self.cn_counts = pd.DataFrame([])
+        if type(cn) != type(None):
+            self.cn = cn.rio.write_nodata(-9999).squeeze()
+            self.cn = cn_correction(self.cn, amc=amc)
+            self.cn_counts = pd.DataFrame([])
+        else:
+            self.cn = dem.squeeze()*np.nan
 
         # Properties
         self.params = pd.DataFrame([], index=[self.fid], dtype=object)
@@ -97,6 +100,9 @@ class RiverBasin(object):
 
         # UnitHydrograph
         self.UnitHydro = None
+
+        # Tests
+        self.tests(self.basin, self.rivers, self.dem, self.cn)
 
     def __repr__(self) -> str:
         """
@@ -230,7 +236,7 @@ class RiverBasin(object):
         self.params = pd.concat([self.params, terrain_params], axis=1)
         return self
 
-    def process_river_network(self, **kwargs):
+    def process_river_network(self):
         """
         Compute river network properties
 
@@ -238,8 +244,8 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            mainriver = main_river(self.rivers, **kwargs)
-            self.rivers_main = self.rivers.loc[mainriver.index]
+            mainriver = get_main_river(self.rivers)
+            self.rivers_main = mainriver
             mriverlen = self.rivers_main.length.sum()/1e3
             if mriverlen.item() != 0:
                 mriverlen = mriverlen.item()
@@ -300,9 +306,7 @@ class RiverBasin(object):
             warnings.warn('Raster counting Error:', e, self.fid)
         return counts
 
-    def compute_params(self,
-                       main_river_kwargs={},
-                       gdal_kwargs={}):
+    def compute_params(self, gdal_kwargs={}):
         """
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
@@ -333,7 +337,7 @@ class RiverBasin(object):
         self.process_dem(masked=True, **gdal_kwargs)
 
         # Flow derived params
-        self.process_river_network(**main_river_kwargs)
+        self.process_river_network()
 
         # Curve number process
         self.cn_counts = self.process_raster_counts(self.cn)
@@ -378,8 +382,9 @@ class RiverBasin(object):
                                      **basin_kwargs)
         plot_basin.axes.set_title(self.fid, loc='left')
         self.rivers.plot(ax=plot_basin.axes, **rivers_kwargs)
-        self.rivers_main.plot(ax=plot_basin.axes, color='tab:red',
-                              **rivers_main_kwargs)
+        if len(self.rivers_main) != 0:
+            self.rivers_main.plot(ax=plot_basin.axes, color='tab:red',
+                                  **rivers_main_kwargs)
         return plot_basin.axes
 
 
