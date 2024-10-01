@@ -1,4 +1,3 @@
-
 ## hydrocivil: a package for hydrological methods in civil and enviromental engineering
 
 Typical tasks related to water resources and engineering require fast calculations of hydrological phenomena such as: flood hydrographs, flood routing, evapotranspiration, infiltration, among others. With this purpose in mind, hydrocivil is presented as an alternative package to perform calculations that are usually done in tedious spreadsheets in a flexible and adjustable way to the user's needs. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. The package is not intended to be a replacement for larger hydrological models (e.g. HEC-HMS), but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
@@ -21,7 +20,7 @@ from hydrocivil.watersheds import RiverBasin
 from hydrocivil.rain import DesignStorm
 ```
 
-###### Compute basin properties
+#### Compute basin properties
 
 ```python
 # ---------------------- Load example data (or your own) --------------------- #
@@ -40,9 +39,7 @@ wshed.plot()
 
     <Axes: title={'left': 'Example'}>
 
-![png](image/wshed_plot_outputexample.png)
-
-###### Create an hypothetical storm
+![png](image/wshed_plot_outputexample.png)Create an hypothetical storm
 
 ```python
 # Create a 100 milimeter, 24 hours duration, SCS type I storm with pulses every 30 minutes
@@ -58,7 +55,7 @@ storm.Effective_Hyetograph.plot()
 
 ![png](image/example_storm.png)
 
-###### Estimate the basin response (flood hydrograph)
+#### Estimate the basin response (flood hydrograph)
 
 ```python
 # Compute the basin SCS unit hydrograph for the storm (UH related to the storm timestep)
