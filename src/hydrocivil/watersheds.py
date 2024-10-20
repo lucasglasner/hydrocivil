@@ -1,11 +1,10 @@
 '''
- # @Author: Lucas Glasner (lgvivanco96@gmail.com)
- # @Create Time: 2024-08-05 11:11:38
- # @Modified by: Lucas Glasner,
- # @Modified time: 2024-08-05 11:11:43
- # @Description: Main watershed classes
- # @Dependencies:
-
+ Author: Lucas Glasner (lgvivanco96@gmail.com)
+ Create Time: 2024-08-05 11:11:38
+ Modified by: Lucas Glasner,
+ Modified time: 2024-08-05 11:11:43
+ Description: Main watershed classes
+ Dependencies:
 '''
 
 import os

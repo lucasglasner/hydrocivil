@@ -1,12 +1,11 @@
 '''
- # @ HEADER: 
- # @ Author: Lucas Glasner (lgvivanco96@gmail.com)
- # @ Create Time: 1969-12-31 21:00:00
- # @ Modified by: Lucas Glasner, 
- # @ Modified time: 2024-05-06 16:40:29
- # @ Description:
- # @ Dependencies:
- '''
+ Author: Lucas Glasner (lgvivanco96@gmail.com)
+ Create Time: 1969-12-31 21:00:00
+ Modified by: Lucas Glasner, 
+ Modified time: 2024-05-06 16:40:29
+ Description:
+ Dependencies:
+'''
 
 import os
 import warnings

@@ -1,11 +1,11 @@
 '''
- # @ Author: Lucas Glasner (lgvivanco96@gmail.com)
- # @ Create Time: 1969-12-31 21:00:00
- # @ Modified by: Lucas Glasner,
- # @ Modified time: 2024-05-06 16:24:28
- # @ Description:
- # @ Dependencies:
- '''
+ Author: Lucas Glasner (lgvivanco96@gmail.com)
+ Create Time: 1969-12-31 21:00:00
+ Modified by: Lucas Glasner,
+ Modified time: 2024-05-06 16:24:28
+ Description:
+ Dependencies:
+'''
 
 import os
 import numpy as np
@@ -103,36 +103,21 @@ def duration_coef(storm_duration,
 # ------------------------------- Design Storms ------------------------------ #
 
 
-class DesignStorm(object):
+class RainStorm(object):
     def __init__(self, kind):
         """
         Storm design class
 
         Args:
-            kind (str): Type of synthetic hyetograph to use:
-                Options:
-                    'UNIFORM'
-                    'G1_Espildora1979'
-                    'G2_Espildora1979'
-                    'G3_Espildora1979'
-                    'G1_Benitez1985'
-                    'G2_Benitez1985'
-                    'G3_Benitez1985'
-                    'G1_Varas1985'
-                    'G2_Varas1985'
-                    'G3_Varas1985'
-                    'G4_Varas1985'
-                    'SCS_I24'
-                    'SCS_IA24'
-                    'SCS_II24'
-                    'SCS_III24'
+            kind (str): Type of synthetic hyetograph to use
         """
         root_folder = os.path.dirname(os.path.abspath(__file__))
         data_folder = os.path.join(root_folder, 'resources')
         shyeto_path = os.path.join(data_folder, 'synthethic_storms.csv')
 
-        shyeto = pd.read_csv(shyeto_path, index_col=0,
-                             usecols=['time', kind])[kind]
+        shyeto = pd.read_csv(shyeto_path, index_col=0, usecols=['time', kind])
+        shyeto = shyeto[kind]
+
         self.SynthHyetograph = shyeto
         self.kind = kind
 
@@ -146,7 +131,7 @@ class DesignStorm(object):
 
     def __repr__(self) -> str:
         """
-        What to show when invoking a DesignStorm object
+        What to show when invoking a RainStorm object
         Returns:
             str: Some metadata
         """

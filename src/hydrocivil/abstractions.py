@@ -1,11 +1,11 @@
 '''
- # @ Author: Lucas Glasner (lgvivanco96@gmail.com)
- # @ Create Time: 1969-12-31 21:00:00
- # @ Modified by: Lucas Glasner,
- # @ Modified time: 2024-05-06 16:40:13
- # @ Description:
- # @ Dependencies:
- '''
+ Author: Lucas Glasner (lgvivanco96@gmail.com)
+ Create Time: 1969-12-31 21:00:00
+ Modified by: Lucas Glasner,
+ Modified time: 2024-05-06 16:40:13
+ Description:
+ Dependencies:
+'''
 
 import pandas as pd
 import numpy as np
