@@ -17,7 +17,7 @@ pip install --force-reinstall hydrocivil
 ```python
 from hydrocivil.misc import load_example_data
 from hydrocivil.watersheds import RiverBasin
-from hydrocivil.rain import DesignStorm
+from hydrocivil.rain import RainStorm
 ```
 
 #### Compute basin properties
@@ -32,7 +32,7 @@ from hydrocivil.rain import DesignStorm
 basin, rnetwork, dem, cn = load_example_data()
 
 # Create RiverBasin object and compute properties
-wshed = RiverBasin('Example', basin, rnetwork, dem, cn)
+wshed = RiverBasin('RioGomez', basin, rnetwork, dem, cn)
 wshed = wshed.compute_params()
 wshed.plot()
 ```
@@ -43,7 +43,7 @@ wshed.plot()
 
 ```python
 # Create a 100 milimeter, 24 hours duration, SCS type I storm with pulses every 30 minutes
-storm = DesignStorm('SCS_I24')
+storm = RainStorm('SCS_I24')
 storm = storm.compute(timestep=0.5, duration=24, rainfall=100)
 # Use SCS method for abstractions with the watershed average curve number
 storm = storm.infiltrate(method='SCS', cn=wshed.params.loc['curvenumber'].item())

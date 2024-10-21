@@ -12,9 +12,11 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import warnings
+import copy as pycopy
 
 from .abstractions import SCS_Abstractions
 from scipy.interpolate import interp1d
+import scipy.stats as st
 
 # ----------------------- duration coefficient routines ---------------------- #
 
@@ -104,23 +106,46 @@ def duration_coef(storm_duration,
 
 
 class RainStorm(object):
+    """
+    RainStorm class used to building temporal rainfall distributions. 
+    The class can be used to build rainstorms that follow any of scipy
+    theoretical distributions (e.g 'norm', 'skewnorm', 'gamma', etc) or 
+    the empirical rain distributions of the SCS type I, IA, II, III and the 
+    Chilean synthetic hyetographs of (Espildora et al 1979),
+    (Benitez et al 1985) and (Varas et al 1985). 
+
+    Examples:
+        # Distribute a 24 hour 100 mm rainstorm in a 12 hour gaussian pulse
+        -> storm = RainStorm('norm')
+        -> storm = storm.compute(timestep=0.5, duration=12, rainfall=100)
+        -> storm.Hyetograph.plot()
+
+        # Create a narrow and wide gaussian pulse of 100 mm in 12 hours
+        -> storm = RainStorm('norm')
+        -> narrow = storm.compute(timestep=0.5, duration=12, rainfall=100,
+                                  loc=0.5, scale=0.05, ref_duration=12)
+        -> wide   = storm.compute(timestep=0.5, duration=12, rainfall=100,
+                                  loc=0.5, scale=0.15, ref_duration=12)
+
+        # Create a 24 hour storm following the SCS type I hyetograph with 
+        # pulses every 10 minutes and a total precipitation of 75 mm.
+        # Then compute infiltration using SCS method and a basin CN of 75
+        -> storm = RainStorm('SCS_I24')
+        -> storm = storm.compute(timestep=10/60, duration=24, rainfall=75)
+        -> storm = storm.infiltrate(method='SCS', cn=75)
+        -> storm.Hyetograph.plot()
+        -> storm.Losses.plot()
+    """
+
     def __init__(self, kind):
         """
-        Storm design class
+        Synthetic RainStorm builder
 
         Args:
             kind (str): Type of synthetic hyetograph to use
         """
-        root_folder = os.path.dirname(os.path.abspath(__file__))
-        data_folder = os.path.join(root_folder, 'resources')
-        shyeto_path = os.path.join(data_folder, 'synthethic_storms.csv')
 
-        shyeto = pd.read_csv(shyeto_path, index_col=0, usecols=['time', kind])
-        shyeto = shyeto[kind]
-
-        self.SynthHyetograph = shyeto
         self.kind = kind
-
         self.timestep = None
         self.duration = None
         self.rainfall = None
@@ -142,6 +167,48 @@ class RainStorm(object):
             text = text+f'Total losses:\n{self.Losses.sum(axis=0)}\n'
         return text
 
+    def copy(self):
+        """
+        Create a deep copy of the class itself
+        """
+        return pycopy.deepcopy(self)
+
+    def synthetic_hyetograph(self, loc=0.5, scale=0.1, **kwargs):
+        """
+        Synthetic hyetograph generator function. If the storm type given
+        in the class constructor is part of any of scipy distributions 
+        the synthetic hyetograph will be built with the given loc, scale
+        and scipy default parameters. 
+
+        Args:
+            loc (float, optional): Location parameter for distribution type
+                hyetographs. Defaults to 0.5.
+            scale (float, optional): Scale parameter for distribution type
+                hyetographs. Defaults to 0.1.
+            **kwargs are given to scipy.rv_continuous.pdf
+
+        Returns:
+            (pandas.Series): Synthetic Hyetograph 1D Table
+        """
+        kind = self.kind
+        scipy_distrs = [d for d in dir(st)
+                        if isinstance(getattr(st, d), st.rv_continuous)]
+        if kind in scipy_distrs:
+            distr = eval(f'st.{kind}')
+            shyeto = distr.pdf(np.linspace(0, 1), loc=loc, scale=scale,
+                               **kwargs)
+            shyeto = shyeto/np.sum(shyeto)
+            shyeto = pd.Series(shyeto, index=np.linspace(0, 1))
+        else:
+            root_folder = os.path.dirname(os.path.abspath(__file__))
+            data_folder = os.path.join(root_folder, 'resources')
+            shyeto_path = os.path.join(data_folder, 'synthethic_storms.csv')
+
+            shyeto = pd.read_csv(shyeto_path, index_col=0,
+                                 usecols=['time', kind])
+            shyeto = shyeto[kind]
+        return shyeto
+
     def infiltrate(self, method='SCS', **kwargs):
         """
         Compute losses due to infiltration with different methods for the
@@ -162,7 +229,8 @@ class RainStorm(object):
             raise ValueError(f'{method} unknown infiltration method.')
         return self
 
-    def compute(self, timestep, duration, rainfall, ref_duration=24, **kwargs):
+    def compute(self, timestep, duration, rainfall, ref_duration=24,
+                interp_kwargs={}, **kwargs):
         """
         Trigger computation of design storm for a given timestep, storm 
         duration, and precipitation for a reference storm (pr and ref_duration)
@@ -173,7 +241,8 @@ class RainStorm(object):
             rainfall (1D array_like or float): Total precipitation in mm
             ref_duration (float): Duration of the given precipitation.
                 Defaults to 24h.
-            **kwargs are given to the interpolation function
+            interp_kwargs (dict): extra arguments for the interpolation function
+            **kwargs are given to the synthetic hyetograph generator
 
         Returns:
             Updated class
@@ -182,10 +251,10 @@ class RainStorm(object):
         self.duration = duration
         self.rainfall = rainfall
         self.ref_duration = ref_duration
-        shyeto = self.SynthHyetograph
-        func = interp1d(shyeto.index*duration, shyeto.values,
-                        fill_value='extrapolate', **kwargs)
         time = np.arange(0, duration+timestep, timestep)
+        shyeto = self.synthetic_hyetograph(**kwargs)
+        func = interp1d(shyeto.index*duration, shyeto.values,
+                        fill_value='extrapolate', **interp_kwargs)
         storm = pd.Series(func(time), index=time).cumsum()
 
         if np.isscalar(rainfall):
@@ -199,20 +268,28 @@ class RainStorm(object):
             storm = pd.concat(storm, axis=1)
             storm.columns = rainfall.index
         self.Hyetograph = storm
-        return self
+        return self.copy()
 
-    # def plot(self, Losses_kwargs={}, **kwargs):
-    #     """
-    #     Plot a simple time vs rain graph
+    def plot(self, **kwargs):
+        """
+        Plot a simple time vs rain graph
 
-    #     Raises:
-    #         RuntimeError: If a Hyetograph isnt already computed
-    #     """
-    #     if type(self.Hyetograph) != type(None):
-    #         axes = self.Hyetograph.plot(**kwargs)
-    #         axes = axes.axes
-    #     else:
-    #         raise RuntimeError('Compute a Hyetograph before plotting!')
-    #     if type(self.Losses) != type(None):
-    #         self.Losses.plot(ax=axes, color='tab:red', legend=False,
-    #                          **Losses_kwargs)
+        Raises:
+            RuntimeError: If a Hyetograph isnt already computed
+        """
+        if type(self.Hyetograph) != type(None):
+            axes = self.Hyetograph.plot(kind='bar', width=1, color='tab:blue',
+                                        **kwargs)
+            axes = axes.axes
+        else:
+            raise RuntimeError('Compute a Hyetograph before plotting!')
+        if type(self.Losses) != type(None):
+            self.Losses.plot(ax=axes, kind='bar', width=1, color='tab:purple',
+                             legend=False, **kwargs)
+        xticks = np.arange(0, self.duration/self.timestep+1, 1)
+        n = int(len(xticks)/self.duration)
+        if n != 0:
+            axes.set_xticks(xticks[::n])
+        else:
+            axes.set_xticks(xticks)
+        return axes
