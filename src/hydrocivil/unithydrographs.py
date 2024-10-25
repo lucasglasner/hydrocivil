@@ -128,12 +128,12 @@ def SUH_Gray(area, mriverlen, meanslope, tstep,
              interp_kwargs={'kind': 'quadratic'}):
     """ 
     Gray method for Synthethic Unit Hydrograph (SUH). This method assumes a SUH
-    that follows the gamma function, which assumes that the basin is the same
-    as infinite series of lineal reservoirs. 
+    that follows the gamma function, which assumes that the basin response is
+    the same as an infinite series of lineal reservoirs. 
 
-    Peak time and gamma_parameter (lowercase) parameters are computed using 
-    Chilean basins. The method just like the Arteaga & Benitez SUH is only 
-    valid for the III to the X political regions. 
+    Peak time and gamma_parameter (lowercase) parameters are calibrated using 
+    Chilean basins. Just like the Arteaga & Benitez method, Gray SUH is only 
+    valid for the III to the X Chilean political regions. 
 
     References:
         Manual de calculo de crecidas y caudales minimos en cuencas sin 
@@ -270,9 +270,9 @@ def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
         qp = Cp * tp ^ np
         tb = Cb * tp ^ nb
 
-    Where L, Lg and S are the following geomorphological properties:
-    basin main channel length, distance between the basin outlet and centroid,
-    and basin mean slope. 
+    Where L, Lg and S are basin main channel length, distance between the basin
+    outlet and centroid, and basin mean slope. 
+
 
     Ct, nt are shape parameters for the peak time, 
     Cp, np are shape parameters for the peak flow,
@@ -428,6 +428,10 @@ class SynthUnitHydro(object):
         Returns:
             (pandas.Series): flood hydrograph 
         """
+        dt = rainfall.index[1]-rainfall.index[0]
+        if dt != self.timestep:
+            text = 'Rain series and UH time resolution must match !!'
+            raise RuntimeError(text)
         if len(rainfall.shape) > 1:
             def func(col): return sg.convolve(col, self.UnitHydro)
             hydrograph = rainfall.apply(func, **kwargs)
