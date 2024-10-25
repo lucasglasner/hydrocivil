@@ -270,7 +270,7 @@ class RainStorm(object):
         self.Hyetograph = storm
         return self.copy()
 
-    def plot(self, **kwargs):
+    def plot(self, legend=True, **kwargs):
         """
         Plot a simple time vs rain graph
 
@@ -279,12 +279,14 @@ class RainStorm(object):
         """
         if type(self.Hyetograph) != type(None):
             axes = self.Hyetograph.plot(kind='bar', width=1, color='tab:blue',
+                                        label='Rainfall',
                                         **kwargs)
             axes = axes.axes
         else:
             raise RuntimeError('Compute a Hyetograph before plotting!')
         if type(self.Losses) != type(None):
             self.Losses.plot(ax=axes, kind='bar', width=1, color='tab:purple',
+                             label='Abstractions',
                              legend=False, **kwargs)
         xticks = np.arange(0, self.duration/self.timestep+1, 1)
         n = int(len(xticks)/self.duration)
