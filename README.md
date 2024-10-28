@@ -46,8 +46,6 @@ wshed = wshed.compute_params()
 wshed.plot()
 ```
 
-    <Axes: title={'left': 'Example'}>
-
   Create an hypothetical storm
 
 ```python
