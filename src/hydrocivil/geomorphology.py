@@ -19,12 +19,9 @@ import networkx as nx
 
 def get_main_river(river_network):
     """
-    For a given river network (shapefile with segments and connectivity
-    information) this functions creates a graph with the river network
-    and computes the main river with the longest_path algorithm. 
-
-    It is recommended to use a river network computed with SAGA-GIS for a 
-    straight run. 
+    For a given river network (shapefile with river segments) this functions
+    creates a graph with the river network and computes the main river with the
+    longest_path algorithm. 
 
     Args:
         river_network (GeoDataFrame): River network (lines)
@@ -62,8 +59,8 @@ def basin_geographical_params(fid, basin, outlet=None):
         basin (geopandas.GeoDataFrame): basin polygon
 
     Raises:
-        RuntimeError: If the basin doesnt have the drainage point in the
-            attribute table. (outlet_x and outlet_y columns)
+        RuntimeError: If outlet == None and the basin doesnt have the drainage
+            point in the attribute table. (outlet_x and outlet_y columns)
 
     Returns:
         pandas.DataFrame: table with parameters

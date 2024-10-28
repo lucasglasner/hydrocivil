@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydrocivil"
+<<<<<<< HEAD
 version = "0.3"
+=======
+version = "0.4"
+>>>>>>> develop
 authors = [
   { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
 ]
