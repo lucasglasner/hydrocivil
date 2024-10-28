@@ -180,8 +180,8 @@ def SUH_Gray(area, mriverlen, meanslope, tstep,
 
     y = Gray_gamma_param(mriverlen, meanslope)
     tp = Gray_peaktime(mriverlen, meanslope)
-    tstep, tp = tstep_correction(tstep, tp)
-    # tstep = tp/5.5
+    # tstep, tp = tstep_correction(tstep, tp)
+    tstep = tp/5.5
 
     t_shape = np.arange(0, 10+0.05, 0.05)
     q_shape = 25*y**(y+1)*np.exp(-y*t_shape)*(t_shape)**(y)/gamma(y+1)
@@ -337,8 +337,8 @@ def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
     # Adjust storm duration to the UH timestep
     # tstep, tpR = tstep_correction(tstep, tp)
     tpR = tp
+    # tstep, tp = tstep_correction(tstep, tp)
     tstep = tp/5.5
-    # tpR = tp+(tR-tu)/4
     qpR = coeffs['Cp']*tpR**(coeffs['np'])
     tbR = coeffs['Cb']*tpR**(coeffs['nb'])
 
@@ -370,8 +370,7 @@ def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
 
 
 class SynthUnitHydro(object):
-    def __init__(self, basin_params, method, timestep=30/60,
-                 interp_kwargs={'kind': 'quadratic'}):
+    def __init__(self, basin_params, method, timestep=30/60):
         """
         Synthetic unit hydrograph (SUH) constructor.
 
@@ -385,10 +384,9 @@ class SynthUnitHydro(object):
         self.method = method
         self.basin_params = pd.Series(basin_params)
         self.timestep = timestep
-        self.interp_kwargs = interp_kwargs
         self.UnitHydro = None
-        self.S_UnitHydro = None
         self.UnitHydroParams = None
+        self.SHydrograph = None
 
     def __repr__(self) -> str:
         """
@@ -397,13 +395,14 @@ class SynthUnitHydro(object):
             str: Some metadata
         """
         text = f'Unit Hydrograph: {self.method}\n'
+        text = text+f'Reference Storm duration: {self.timestep}\n'
         text = text+f'Parameters:\n\n{self.UnitHydroParams}'
         return text
 
-    def UH_cumulative(self):
+    def get_SHydrograph(self):
         """
-        This function computes the S-Unit Hydrograph which is independent
-        of storm duration and can be used for computing the UH of a
+        This function computes the S-Curve or S-Hydrograph which is independent
+        of the storm duration and can be used for computing the UH of a
         different duration.
 
         Returns:
@@ -413,6 +412,46 @@ class SynthUnitHydro(object):
         sums = [uh.shift(i) for i in range(len(uh)+1)]
         S_uh = pd.concat(sums, axis=1).sum(axis=1)
         return S_uh
+
+    def update_duration(self, duration, kind='quadratic', **kwargs):
+        """
+        This function uses de S-Curve to update the unit hydrograph duration
+        and the respective parameters.
+
+        Args:
+            duration (float): New storm duration (equal to time resolution)
+            kind (str, optional): Specifies the kind of interpolation as
+            a string. Defaults to 'quadratic'.
+
+        Returns:
+            self: Updated Class
+        """
+        time, SCurve = self.UnitHydro.index, self.SHydrograph
+        new_time = np.arange(time[0], time[-1]+duration, duration)
+        interp_func = interp1d(time, SCurve.values, fill_value='extrapolate',
+                               kind=kind, **kwargs)
+        SCurve_new = pd.Series(interp_func(new_time), index=new_time)
+        uh_new = (SCurve_new-SCurve_new.shift(1).fillna(0))
+        uh_new = uh_new.where(uh_new > 0).dropna()
+        uh_new.loc[uh_new.index[-1]+duration] = 0
+        uh_new.loc[0] = 0
+        uh_new = uh_new.sort_index()
+
+        # Ensure that the unit hydrograph acummulates a volume of 1mm
+        volume = np.trapz(uh_new, uh_new.index*3600)
+        volume = volume/self.basin_params['area']/1e3  # mm
+        uh_new = uh_new/volume
+
+        params_new = pd.Series([uh_new.max(), uh_new.idxmax(),
+                                uh_new.index[-1], duration],
+                               index=['qpeak', 'tpeak', 'tbase', 'tstep'])
+
+        # Update
+        self.timestep = duration
+        self.UnitHydro = uh_new
+        self.UnitHydroParams = params_new
+        self.SHydrograph = SCurve_new
+        return self
 
     def convolve(self, rainfall, **kwargs):
         """
@@ -440,7 +479,7 @@ class SynthUnitHydro(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, method=None):
+    def compute(self, method=None, interp_kwargs={'kind': 'quadratic'}):
         """
         Trigger calculation of desired unit hydrograph
 
@@ -452,7 +491,7 @@ class SynthUnitHydro(object):
             ValueError: If give the class a wrong UH kind.
 
         Returns:
-            (tuple): Unit hydrograph values and parameters.
+            self: Updated Class
         """
         if type(method) == type(None):
             method = self.method
@@ -460,30 +499,31 @@ class SynthUnitHydro(object):
             params = ['area', 'mriverlen', 'meanslope', 'curvenumber']
             params = self.basin_params[params]
             uh, uh_params = SUH_SCS(tstep=self.timestep,
-                                    interp_kwargs=self.interp_kwargs,
+                                    interp_kwargs=interp_kwargs,
                                     **params)
 
         elif method == 'Arteaga&Benitez':
-            params = ['area', 'mriverlen', 'out2centroidlen', 'meanslope',
-                      'zone']
+            params = ['area', 'mriverlen', 'out2centroidlen',
+                      'meanslope', 'zone']
             params = self.basin_params[params]
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
-                                               interp_kwargs=self.interp_kwargs,
+                                               interp_kwargs=interp_kwargs,
                                                **params)
 
         elif method == 'Gray':
             params = ['area', 'mriverlen', 'meanslope']
             params = self.basin_params[params]
             uh, uh_params = SUH_Gray(tstep=self.timestep,
-                                     interp_kwargs=self.interp_kwargs,
+                                     interp_kwargs=interp_kwargs,
                                      **params)
 
         else:
             raise ValueError(f'method="{method}" not valid!')
 
         self.UnitHydro, self.UnitHydroParams = uh, uh_params
-        self.timestep = uh_params.tstep
-        self.S_UnitHydro = self.UH_cumulative()
+        self.SHydrograph = self.get_SHydrograph()
+        self.update_duration(self.timestep)
+
         return self
 
     def plot(self, **kwargs):

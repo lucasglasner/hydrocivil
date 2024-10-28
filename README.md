@@ -39,7 +39,7 @@ wshed.plot()
 
     <Axes: title={'left': 'Example'}>
 
-![png](image/wshed_plot_outputexample.png)Create an hypothetical storm
+* [ ] ![png](image/wshed_plot_outputexample.png)Create an hypothetical storm
 
 ```python
 # Create a 100 milimeter, 24 hours duration, SCS type I storm with pulses every 30 minutes
