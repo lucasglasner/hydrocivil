@@ -4,12 +4,22 @@ Typical tasks related to water resources and engineering require fast calculatio
 
 The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook. The package is 100% written in English in order to maintain consistency with the syntax and basic classes/functions of the Python language.
 
+
+## Dependencies
+
+Before installing, check your environment for the following packages:
+
+* numpy, pandas, scipy, matplotlib
+* xarray, rasterio, rioxarray
+* shapely, geopandas
+* networkx
+
 ## Installation
 
 Currently the package can only be installed via pip:
 
 ```shell
-pip install --force-reinstall hydrocivil
+pip install --force-reinstall --no-deps hydrocivil
 ```
 
 ## Example Use
