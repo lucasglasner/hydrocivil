@@ -41,15 +41,12 @@ from hydrocivil.rain import RainStorm
 basin, rnetwork, dem, cn = load_example_data()
 
 # Create RiverBasin object and compute properties
-wshed = RiverBasin('RioGomez', basin, rnetwork, dem, cn)
+wshed = RiverBasin('Example', basin, rnetwork, dem, cn)
 wshed = wshed.compute_params()
 wshed.plot()
 ```
 
     <Axes: title={'left': 'Example'}>
-
-#### * [ ] ![png](image/wshed_plot_outputexample.png)
-
 
   Create an hypothetical storm
 
