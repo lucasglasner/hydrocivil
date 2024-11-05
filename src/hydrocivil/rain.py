@@ -280,7 +280,11 @@ class RainStorm(object):
         self.Hyetograph = storm
         return self.copy()
 
-    def plot(self, legend=True, **kwargs):
+    def plot(self,
+             plot_Losses=False,
+             Hyetograph_kwargs={},
+             Losses_kwargs={},
+             **kwargs):
         """
         Plot a simple time vs rain graph
 
@@ -288,20 +292,24 @@ class RainStorm(object):
             RuntimeError: If a Hyetograph isnt already computed
         """
         if type(self.Hyetograph) != type(None):
-            axes = self.Hyetograph.plot(kind='bar', width=1, color='tab:blue',
-                                        label='Rainfall',
+            axes = self.Hyetograph.plot(label='Rainfall', **Hyetograph_kwargs,
                                         **kwargs)
             axes = axes.axes
         else:
             raise RuntimeError('Compute a Hyetograph before plotting!')
         if type(self.Losses) != type(None):
-            self.Losses.plot(ax=axes, kind='bar', width=1, color='tab:purple',
-                             label='Abstractions',
-                             legend=False, **kwargs)
+            if plot_Losses:
+                self.Losses.plot(ax=axes, label='Abstractions',
+                                 **Losses_kwargs, **kwargs)
         xticks = np.arange(0, self.duration/self.timestep+1, 1)
         n = int(len(xticks)/self.duration)
         if n != 0:
             axes.set_xticks(xticks[::n])
         else:
             axes.set_xticks(xticks)
+        if "kind" not in kwargs.keys():
+            axes.set_xlim(0, self.duration+self.timestep)
+        else:
+            if 'bar' != kwargs['kind']:
+                axes.set_xlim(0, self.duration+self.timestep)
         return axes
