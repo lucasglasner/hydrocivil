@@ -21,7 +21,7 @@ from scipy.interpolate import interp1d
 from .unithydrographs import SynthUnitHydro
 from .geomorphology import get_main_river, concentration_time
 from .geomorphology import basin_geographical_params, basin_terrain_params
-from .misc import raster_distribution
+from .misc import raster_distribution, ABZONE_POLYGON
 from .abstractions import cn_correction
 
 # ---------------------------------------------------------------------------- #
@@ -358,6 +358,14 @@ class RiverBasin(object):
         Returns:
             self: updated class
         """
+        if method == 'Arteaga&Benitez':
+            centroid = self.basin.centroid.to_crs('epsg:4326').loc[0]
+            mask = centroid.within(ABZONE_POLYGON.geometry)
+            if mask.sum() == 0:
+                raise RuntimeError(
+                    f'No valid {method} zone for {self.fid} basin')
+            else:
+                self.params.loc['zone_AB'] = ABZONE_POLYGON[mask].zone.item()
         SUH = SynthUnitHydro(self.params[self.fid], method, **kwargs).compute()
         self.UnitHydro = SUH
         return self

@@ -11,6 +11,8 @@ import os
 import pandas as pd
 import numpy as np
 
+import geopandas as gpd
+
 # ------------------------------------ gis ----------------------------------- #
 
 
@@ -141,3 +143,14 @@ def to_numeric(obj):
         return pd.to_numeric(obj)
     except:
         return obj
+
+
+# ---------------------- Empirical Synthetic Hyetographs --------------------- #
+ROOT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+DATA_FOLDER = os.path.join(ROOT_FOLDER, 'resources')
+SHYETO_LOCAL = pd.read_csv(os.path.join(DATA_FOLDER, 'synthethic_storms.csv'),
+                           index_col=0)
+
+# ----------------------------- Auxiliary Vectors ---------------------------- #
+ABZONE_POLYGON = gpd.read_file(os.path.join(DATA_FOLDER, 'vector',
+                                            'Zonas_ArteagaBenitez.shp'))

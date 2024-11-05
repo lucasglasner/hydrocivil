@@ -4,7 +4,6 @@ Typical tasks related to water resources and engineering require fast calculatio
 
 The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook. The package is 100% written in English in order to maintain consistency with the syntax and basic classes/functions of the Python language.
 
-
 ## Dependencies
 
 Before installing, check your environment for the following packages:
@@ -42,7 +41,7 @@ from hydrocivil.rain import RainStorm
 basin, rnetwork, dem, cn = load_example_data()
 
 # Create RiverBasin object and compute properties
-wshed = RiverBasin('RioGomez', basin, rnetwork, dem, cn)
+wshed = RiverBasin('Example', basin, rnetwork, dem, cn, amc='wet')
 wshed = wshed.compute_params()
 wshed.plot()
 ```
