@@ -21,7 +21,8 @@ from scipy.interpolate import interp1d
 from .unithydrographs import SynthUnitHydro
 from .geomorphology import get_main_river, concentration_time
 from .geomorphology import basin_geographical_params, basin_terrain_params
-from .misc import raster_distribution, ABZONE_POLYGON
+from .misc import raster_distribution
+from .global_vars import ABZONE_POLYGON
 from .abstractions import cn_correction
 
 # ---------------------------------------------------------------------------- #

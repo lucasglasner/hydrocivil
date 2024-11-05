@@ -14,7 +14,7 @@ import warnings
 import copy as pycopy
 
 from .abstractions import SCS_Abstractions
-from .misc import SHYETO_LOCAL
+from .global_vars import SHYETO_DATA
 
 from scipy.interpolate import interp1d
 import scipy.stats as st
@@ -171,7 +171,7 @@ class RainStorm(object):
             else:
                 shyeto = pd.Series(shyeto, index=np.linspace(0, 1))
         else:
-            shyeto = SHYETO_LOCAL[kind]
+            shyeto = SHYETO_DATA[kind]
         return shyeto
 
     def __init__(self, kind, loc=0.5, scale=0.1, **kwargs):
