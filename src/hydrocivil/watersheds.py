@@ -28,6 +28,50 @@ from .abstractions import cn_correction
 
 
 class RiverBasin(object):
+    """
+    Watershed class used to compute geomorphological properties of basins, 
+    unit hydrographs, flood hydrographs, terrain properties, among other 
+    hydrological methods. 
+    The class seeks to be a virtual representation of an hydrographic basin, 
+    where given inputs of terrain, river network and land cover are used to 
+    derive basin-wide properties and hydrological computations. 
+
+    Examples:
+        #### Compute geomorphometric parameters
+
+        -> import geopandas as gpd
+        -> import rioxarray as rxr
+        -> dem = rxr.open_rasterio('path/to/dem', masked=True)
+        -> cn  = rxr.open_rasterio('path/to/cn', masked=True)
+        -> basin = gpd.read_file('/path/to/basinpolygon')
+        -> rivers = gpd.read_file('/path/to/riversegments/')
+
+        -> wshed = RiverBasin('mybasin', basin, rivers, dem, cn)
+        -> wshed.compute_params()
+
+        #### Use curve number corrected by a wet/dry condition
+        -> wshed = RiverBasin('mybasin', basin, rivers, dem, cn, amc='wet')
+        -> wshed.compute_params()
+
+        #### Change a parameter by hand
+        -> wshed.set_parameter('area', 1000)
+
+        #### Check hypsometric curve
+        -> curve = wshed.get_hypsometric_curve(bins='auto')
+
+        #### Check fraction of area below 1400 meters
+        -> fArea = wshed.area_below_height(1400)
+
+        #### Access basin params as pandas Data Frame
+        -> wshed.params
+
+        #### Compute SCS unit hydrograph for rain pulses of 1 hour
+        -> wshed.SynthUnitHydro(kind='SCS', timestep=1)
+
+        #### Compute flood hydrograph with a series of rainfall
+        -> whsed.UnitHydro.convolve(rainfall)
+    """
+
     def tests(self, basin, rivers, dem, cn):
         """
         Args:

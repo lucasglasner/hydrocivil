@@ -371,6 +371,30 @@ def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
 
 
 class SynthUnitHydro(object):
+    """
+    Synthetic Unit Hydrograph class used to building unit hydrograph of 
+    river basins as a function of geomorphometric and land use properties. 
+    The class can be used to build the SCS unit hydrograph of any watershed
+    (using SCS time of concentration) or the Chilean unit hydrographs of 
+    Arteaga&Benitez (Linsley) and Grey both present in the national flood 
+    manual. 
+
+    Examples:
+        #### Compute SCS UH for a storm duration of 1 hour. Show params and
+        #### S-Curve
+        -> suh = SynthUnitHydro(basin_params, method='SCS', timestep=1)
+        -> suh.compute()
+        -> suh.UnitHydroParams 
+        -> suh.SHydrograph
+
+        #### Compute convolution of unit hydrograph and a series of rainfall
+        -> suh.convolve(rainfall)
+
+        #### Change duration of unit hydrograph to 30 minutes and compute 
+        #### convolution with a new series of 30 minute rainfall pulses
+        -> suh.update_duration(30/60).convolve(rainfall2)
+    """
+
     def __init__(self, basin_params, method, timestep=30/60):
         """
         Synthetic unit hydrograph (SUH) constructor.
@@ -423,6 +447,7 @@ class SynthUnitHydro(object):
             duration (float): New storm duration (equal to time resolution)
             kind (str, optional): Specifies the kind of interpolation as
             a string. Defaults to 'quadratic'.
+            **kwargs are given to interpolation function
 
         Returns:
             self: Updated Class
