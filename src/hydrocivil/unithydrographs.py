@@ -23,8 +23,8 @@ from .geomorphology import tc_SCS
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
 
 
-def SUH_SCS(area, mriverlen, meanslope, curvenumber,
-            tstep, interp_kwargs={'kind': 'quadratic'}):
+def SUH_SCS(area, mriverlen, meanslope, curvenumber, tstep,
+            interp_kwargs={'kind': 'quadratic'}, **kwargs):
     """
     U.S.A Soil Conservation Service (SCS) synthetic unit hydrograph
     (dimensionless). 
@@ -125,7 +125,7 @@ def tstep_correction(tstep, tp):
 
 
 def SUH_Gray(area, mriverlen, meanslope, tstep,
-             interp_kwargs={'kind': 'quadratic'}):
+             interp_kwargs={'kind': 'quadratic'}, **kwargs):
     """ 
     Gray method for Synthethic Unit Hydrograph (SUH). This method assumes a SUH
     that follows the gamma function, which assumes that the basin response is
@@ -210,55 +210,56 @@ def SUH_Gray(area, mriverlen, meanslope, tstep,
     return uh, params
 
 
-def ArteagaBenitez_zone(region):
-    """
-    Given a Chilean political region as a string, this function returns
-    the corresponding zone of the Arteaga&Benitez 1979 unit hydrograph. 
+# def ArteagaBenitez_zone(region):
+#     """
+#     Given a Chilean political region as a string, this function returns
+#     the corresponding zone of the Arteaga&Benitez 1979 unit hydrograph.
 
-    References:
-        Manual de calculo de crecidas y caudales minimos en cuencas sin 
-        informacion fluviometrica. Republica de Chile, Ministerio de Obras
-        Publicas (MOP), Dirección General de Aguas (DGA) (1995). 
+#     References:
+#         Manual de calculo de crecidas y caudales minimos en cuencas sin
+#         informacion fluviometrica. Republica de Chile, Ministerio de Obras
+#         Publicas (MOP), Dirección General de Aguas (DGA) (1995).
 
-        Metodo para la determinación de los hidrogramas sintéticos en Chile, 
-        Arteaga F., Benitez A., División de Estudios Hidrológicos, 
-        Empresa Nacional de Electricidad S.A (1985).
+#         Metodo para la determinación de los hidrogramas sintéticos en Chile,
+#         Arteaga F., Benitez A., División de Estudios Hidrológicos,
+#         Empresa Nacional de Electricidad S.A (1985).
 
 
-    Args:
-        region (str): Chilean region as string (e.g RM, V, IV, etc)
+#     Args:
+#         region (str): Chilean region as string (e.g RM, V, IV, etc)
 
-    Raises:
-        RuntimeError: If a wrong region is given
+#     Raises:
+#         RuntimeError: If a wrong region is given
 
-    Returns:
-        (str): Method geographical zone:
-            options: "I", "II", "III" or "IV"
-    """
-    if region in ['III', 'IV', 'V', 'RM', 'VI']:
-        return 'I'
-    elif region in ['VII']:
-        return 'II'
-    elif region in ['VIII', 'IX', 'XIV', 'X', 'XVI']:
-        return 'III'
-    elif region in ['II']:
-        return 'IV'
-    elif region in ['XV', 'I']:
-        text = f'Region: {region} not strictly aviable for the method.'
-        text = text+' Using the nearest zone: "IV"'
-        warnings.warn(text)
-        return 'IV'
-    elif region in ['XI', 'XII']:
-        text = f'Region: {region} not strictly aviable for the method.'
-        text = text+' Using the nearest zone: "III"'
-        warnings.warn(text)
-        return 'III'
-    else:
-        raise RuntimeError(f'Region: "{region}" invalid')
+#     Returns:
+#         (str): Method geographical zone:
+#             options: "I", "II", "III" or "IV"
+#     """
+#     if region in ['III', 'IV', 'V', 'RM', 'VI']:
+#         return 'I'
+#     elif region in ['VII']:
+#         return 'II'
+#     elif region in ['VIII', 'IX', 'XIV', 'X', 'XVI']:
+#         return 'III'
+#     elif region in ['II']:
+#         return 'IV'
+#     elif region in ['XV', 'I']:
+#         text = f'Region: {region} not strictly aviable for the method.'
+#         text = text+' Using the nearest zone: "IV"'
+#         warnings.warn(text)
+#         return 'IV'
+#     elif region in ['XI', 'XII']:
+#         text = f'Region: {region} not strictly aviable for the method.'
+#         text = text+' Using the nearest zone: "III"'
+#         warnings.warn(text)
+#         return 'III'
+#     else:
+#         raise RuntimeError(f'Region: "{region}" invalid')
 
 
 def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
-                       zone, tstep, interp_kwargs={'kind': 'quadratic'}):
+                       zone_AB, tstep, interp_kwargs={'kind': 'quadratic'},
+                       **kwargs):
     """
     Arteaga & Benitez Synthetic Unit Hydrograph, using Linsley formulas. 
 
@@ -329,7 +330,7 @@ def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
                                           index=['I', 'II', 'III', 'IV'])
         return Linsley_parameters
 
-    coeffs = SUH_ArteagaBenitez_Coefficients().loc[zone]
+    coeffs = SUH_ArteagaBenitez_Coefficients().loc[zone_AB]
     tp = coeffs['Ct']
     tp = tp * (mriverlen*out2centroidlen /
                np.sqrt(meanslope))**coeffs['nt']
@@ -370,6 +371,30 @@ def SUH_ArteagaBenitez(area, mriverlen, out2centroidlen, meanslope,
 
 
 class SynthUnitHydro(object):
+    """
+    Synthetic Unit Hydrograph class used to building unit hydrograph of 
+    river basins as a function of geomorphometric and land use properties. 
+    The class can be used to build the SCS unit hydrograph of any watershed
+    (using SCS time of concentration) or the Chilean unit hydrographs of 
+    Arteaga&Benitez (Linsley) and Grey both present in the national flood 
+    manual. 
+
+    Examples:
+        #### Compute SCS UH for a storm duration of 1 hour. Show params and
+        #### S-Curve
+        -> suh = SynthUnitHydro(basin_params, method='SCS', timestep=1)
+        -> suh.compute()
+        -> suh.UnitHydroParams 
+        -> suh.SHydrograph
+
+        #### Compute convolution of unit hydrograph and a series of rainfall
+        -> suh.convolve(rainfall)
+
+        #### Change duration of unit hydrograph to 30 minutes and compute 
+        #### convolution with a new series of 30 minute rainfall pulses
+        -> suh.update_duration(30/60).convolve(rainfall2)
+    """
+
     def __init__(self, basin_params, method, timestep=30/60):
         """
         Synthetic unit hydrograph (SUH) constructor.
@@ -422,6 +447,7 @@ class SynthUnitHydro(object):
             duration (float): New storm duration (equal to time resolution)
             kind (str, optional): Specifies the kind of interpolation as
             a string. Defaults to 'quadratic'.
+            **kwargs are given to interpolation function
 
         Returns:
             self: Updated Class
@@ -479,7 +505,8 @@ class SynthUnitHydro(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, method=None, interp_kwargs={'kind': 'quadratic'}):
+    def compute(self, method=None, interp_kwargs={'kind': 'quadratic'},
+                **kwargs):
         """
         Trigger calculation of desired unit hydrograph
 
@@ -500,22 +527,22 @@ class SynthUnitHydro(object):
             params = self.basin_params[params]
             uh, uh_params = SUH_SCS(tstep=self.timestep,
                                     interp_kwargs=interp_kwargs,
-                                    **params)
+                                    **params, **kwargs)
 
         elif method == 'Arteaga&Benitez':
             params = ['area', 'mriverlen', 'out2centroidlen',
-                      'meanslope', 'zone']
+                      'meanslope', 'zone_AB']
             params = self.basin_params[params]
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
                                                interp_kwargs=interp_kwargs,
-                                               **params)
+                                               **params, **kwargs)
 
         elif method == 'Gray':
             params = ['area', 'mriverlen', 'meanslope']
             params = self.basin_params[params]
             uh, uh_params = SUH_Gray(tstep=self.timestep,
                                      interp_kwargs=interp_kwargs,
-                                     **params)
+                                     **params, **kwargs)
 
         else:
             raise ValueError(f'method="{method}" not valid!')
