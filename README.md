@@ -58,8 +58,7 @@ storm = RainStorm('SCS_I24')
 storm = storm.compute(timestep=0.5, duration=24, rainfall=100)
 # Use SCS method for abstractions with the watershed average curve number
 storm = storm.infiltrate(method='SCS', cn=wshed.params.loc['curvenumber'].item())
-storm.Hyetograph.plot()
-storm.Effective_Hyetograph.plot()
+storm.plot(plot_Losses=True, kind='bar', width=1, legend=True, Losses_kwargs={'color':'tab:purple'}, ec='k')
 ```
 
     <Axes: >
