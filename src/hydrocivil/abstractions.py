@@ -73,7 +73,7 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
         pr (array_like or float): Precipitation in mm
         cn (array_like or float): Curve Number
         r (float, optional): Fraction of the maximum potential retention
-            Defaults to 0.2.
+            used on the initial abstraction calculation. Defaults to 0.2.
         weights (array_like or None). If curve number is an array of values this
             attribute expects an array of the same size with weights for
             the precipitation computation. Defaults to None.

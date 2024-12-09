@@ -350,7 +350,8 @@ class RiverBasin(object):
             warnings.warn('Raster counting Error:', e, self.fid)
         return counts
 
-    def compute_params(self, gdal_kwargs={}):
+    def compute_params(self, dem_kwargs={}, geography_kwargs={},
+                       river_network_kwargs={}):
         """
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
@@ -362,12 +363,15 @@ class RiverBasin(object):
                 drainage density and shape factor. 
                 Details in src.geomorphology.main_river
         Args:
-            main_river_kwargs (dict, optional): 
+            dem_kwargs (dict, optional): 
+                Additional arguments for the terrain preprocessing function.
+                Defaults to {}.
+            geography_kwargs (dict, optional):
+                Additional arguments for the geography preprocessing routine.
+                Defauts to {}.
+            river_network_kwargs (dict, optional): 
                 Additional arguments for the main river finding routine.
                 Defaults to {}. Details in src.geomorphology.main_river routine
-            gdal_kwargs (dict, optional): 
-                Additional arguments for the slope computing function.
-                Defaults to {}.
         Returns:
             self: updated class
         """
@@ -375,13 +379,13 @@ class RiverBasin(object):
             self.params = pd.DataFrame([], index=[self.fid])
 
         # Geographical parameters
-        self.process_geography()
+        self.process_geography(**geography_kwargs)
 
         # Compute slope and aspect. Update dem property
-        self.process_dem(masked=True, **gdal_kwargs)
+        self.process_dem(masked=True, **dem_kwargs)
 
         # Flow derived params
-        self.process_river_network()
+        self.process_river_network(**river_network_kwargs)
 
         # Curve number process
         self.cn_counts = self.process_raster_counts(self.cn)

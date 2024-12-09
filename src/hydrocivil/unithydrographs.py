@@ -16,6 +16,7 @@ import geopandas as gpd
 
 from math import gamma
 from scipy.interpolate import interp1d
+from scipy.special import gamma
 
 from .geomorphology import tc_SCS
 
@@ -23,27 +24,47 @@ from .geomorphology import tc_SCS
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
 
 
-def SUH_SCS(area, mriverlen, meanslope, curvenumber, tstep,
-            interp_kwargs={'kind': 'quadratic'}, **kwargs):
+def SUH_SCS(area, mriverlen, meanslope, curvenumber, tstep, m=3.7,
+            interp_kwargs={'kind': 'quadratic'}):
     """
-    U.S.A Soil Conservation Service (SCS) synthetic unit hydrograph
-    (dimensionless). 
+    U.S.A Soil Conservation Service (SCS) synthetic unit hydrograph. 
+
+    The SCS model for unit hydrograph calculation is based on a triangular unit 
+    hydrograph and a dimensionless unit hydrograph. The model assumes that the
+    unit hydrograph can be characterized as a function of the peak flow 'q_p'
+    and peak time 't_p'. The equations are:
+
+    t_p = 0.6*t_c + dt/2
+    q_p = prf * area / t_p
+
+    where t_c is the concentration time, dt the rain duration and unit 
+    hydrograph timestep and prf the peak rate factor. The dimensionless unit
+    hydrograph comes from solving the so called 'gamma equation', which is:
+
+    q/q_p = exp(m) * ((t / t_p)**m) * exp(-m * (t / t_p))
+
+    where 'm' is a shape parameter related to the PRF by the equation: 
+
+    prf = C * m**(m + 1) / exp(m) / Γ(m+1)
+
+    where Γ is the gamma function and C a constant equal to 645.33 for
+    imperial units, and 0.2787 for international units. The peak rate factor 
+    for the traditional SCS unit hydrograph is equal to PRF = 484 (imperial
+    units) or PRF = 0.208 (SI units). However recent literature (?? HEC-HMS ??)
+    says it can vary with basin geomorphological parameters for a range of at
+    least 100 - 600 (imperial units). 
 
     References:
         Bhunya, P. K., Panda, S. N., & Goel, M. K. (2011).
         Synthetic unit hydrograph methods: a critical review.
         The Open Hydrology Journal, 5(1).
 
+        Natural Resources Conservation Service. Chapter 16 - Hydrographs.
+        National Engineering Handbook Part 630 - Hydrology. United States
+        Department of Agriculture (USDA), 2007
+
         Chow Ven, T., Te, C. V., RC, M. D., & Mays, L. W. (1988).
         Applied hydrology. McGraw-Hill Book Company.
-
-        Snyder, F. F., Synthetic unit-graphs, Trans. Am. Geophys. Union,
-        vol. 19, pp. 447-454, 1938. Soil Conservation Service, Hydrology,
-        sec. 4 del National Engineering Handhook. Soil Conservation Service,
-        U. S. Department of Agriculture, Washington, D.C., 1972
-
-        Snyder, F. F. (1938). Synthetic unit‐graphs. Eos,
-        Transactions American Geophysical Union, 19(1), 447-454.
 
     Args:
         area (float): Basin area (km2)
@@ -66,18 +87,19 @@ def SUH_SCS(area, mriverlen, meanslope, curvenumber, tstep,
     # Unit hydrograph shape
     t_shape = [np.arange(0, 2+0.1, 0.1),
                np.arange(2.2, 4+0.2, 0.2),
-               np.arange(4.5, 5+0.5, 0.5)]
+               np.arange(4.5, 8+0.5, 0.5)]
     t_shape = np.hstack(t_shape)
 
-    q_shape = [0.000, 0.030, 0.100, 0.190, 0.310, 0.470, 0.660, 0.820, 0.930,
-               0.990, 1.000, 0.990, 0.930, 0.860, 0.780, 0.680, 0.560, 0.460,
-               0.390, 0.330, 0.280, 0.207, 0.147, 0.107, 0.077, 0.055, 0.040,
-               0.029, 0.021, 0.015, 0.011, 0.005, 0.000]
-    q_shape = np.array(q_shape)
+    q_shape = np.exp(m)*t_shape**m*np.exp(-m*t_shape)
+
+    # Peak rate factor
+    prf = 645.33*m**(m+1)/np.exp(m)/gamma(m+1)  # Imperial Units
+    prf = prf*(0.0283/2.58/25.4)               # International Units
+
     # Unit hydrograph paremeters
     tp = (tc_SCS(mriverlen, meanslope, curvenumber)/60)*0.6+tstep/2
     tb = 2.67*tp
-    qp = 0.208*area/tp
+    qp = prf*area/tp
     uh = pd.Series(qp*q_shape, index=t_shape*tp)
 
     # Interpolate to new time resolution
@@ -91,8 +113,9 @@ def SUH_SCS(area, mriverlen, meanslope, curvenumber, tstep,
     # Ensure that the unit hydrograph acummulates a volume of 1mm
     volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
     uh = uh/volume
-    params = (qp, tp, tb, tstep)
-    params = pd.Series(params, index=['qpeak', 'tpeak', 'tbase', 'tstep'])
+    params = (qp, tp, tb, tstep, prf)
+    params = pd.Series(
+        params, index=['prf', 'qpeak', 'tpeak', 'tbase', 'tstep'])
     uh.name, params.name = 'SCS_m3 s-1 mm-1', 'Params_SCS'
     return uh, params
 
@@ -125,7 +148,8 @@ def tstep_correction(tstep, tp):
 
 
 def SUH_Gray(area, mriverlen, meanslope, tstep,
-             interp_kwargs={'kind': 'quadratic'}, **kwargs):
+             interp_kwargs={'kind': 'quadratic'},
+             **kwargs):
     """ 
     Gray method for Synthethic Unit Hydrograph (SUH). This method assumes a SUH
     that follows the gamma function, which assumes that the basin response is

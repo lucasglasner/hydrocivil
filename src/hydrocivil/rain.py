@@ -68,11 +68,21 @@ def duration_coef(storm_duration,
                   bell_threshold=1,
                   duration_threshold=10/60):
     """
-    This function is a merge of Grunsky and Bell Formulations
-    of the Duration Coefficient. The idea is to use Bell's
-    Formula only when the input duration is less than the "bell_threshold"
-    parameter. In addition, when the duration is less than the
-    "duration_threshold" the duration is set to the "duration_threshold".
+    The duration coefficient is a parameter used to transform a known duration
+    precipitation to a new duration rain. For example it can be used to
+    estimate from daily rainfall (24 hours) the expected accumulation in
+    6 hours. This function uses a merge of Grunsky and Bell Formulations of the
+    duration coefficient. The idea is to use Bell's Formula only when the input
+    duration is less than a user specified threshold. In addition, when the
+    duration is less than the "duration_threshold" the duration is set to the
+    "duration_threshold".
+
+    References:
+        Bell, F.C. (1969) Generalized pr-Duration-Frequency
+        Relationships. Journal of Hydraulic Division, ASCE, 95, 311-327.
+
+        Grunsky (???)
+
 
     Args:
         storm_duration (array_like): Storm duration in hours
@@ -84,22 +94,21 @@ def duration_coef(storm_duration,
     Returns:
         coef (array_like): Duration coefficients (dimensionless)
     """
-    t = storm_duration
-    if not np.isscalar(t):
-        coefs = np.empty(len(t))
-        for i in range(len(coefs)):
-            if t[i] < duration_threshold:
-                coefs[i] = duration_coef(duration_threshold, ref_duration)
-                text = f'Storm duration is less than {duration_threshold}'
-                text = text+f' threshold, changing to {duration_threshold}.'
-                warnings.warn(text)
-            elif (t[i] >= duration_threshold) and (t[i] < bell_threshold):
-                coefs[i] = bell_coef(t[i], ref_duration)
-            else:
-                coefs[i] = grunsky_coef(t[i], ref_duration)
-    else:
-        coefs = duration_coef([t], ref_duration, bell_threshold)
-        coefs = coefs.item()
+    if np.isscalar(storm_duration):
+        storm_duration = np.array([storm_duration])
+    coefs = np.full(storm_duration.shape, np.nan)
+    duration_mask = storm_duration < duration_threshold
+    bell_mask = storm_duration < bell_threshold
+    if duration_mask.sum() != 0:
+        threshold = f'{duration_threshold*60:.1f}'
+        text = f'A storm duration is less than {threshold} min threshold,'
+        text = text+f' setting to {threshold} min.'
+        warnings.warn(text)
+        storm_duration[duration_mask] = duration_threshold
+    coefs[bell_mask] = bell_coef(storm_duration[bell_mask],
+                                 ref_duration=ref_duration)
+    coefs[~bell_mask] = grunsky_coef(storm_duration[~bell_mask],
+                                     ref_duration=ref_duration)
     return coefs
 
 
@@ -174,17 +183,33 @@ class RainStorm(object):
             shyeto = SHYETO_DATA[kind]
         return shyeto
 
-    def __init__(self, kind, loc=0.5, scale=0.1, **kwargs):
+    def __init__(self, kind='norm', loc=0.5, scale=0.1, **kwargs):
         """
         Synthetic RainStorm builder
 
         Args:
-            kind (str): Type of synthetic hyetograph to use
+            kind (str): Type of synthetic hyetograph to use. It can be of two
+                types:
+                    1) Any of scipy distributiosn (give parameters in **kwargs)
+                    2) Any of
+                        "SCS_X" with X = I24,IA24,II6,II12,II24,II48,III24
+                        "GX_Benitez1985" with X = 1,2,3
+                        "GX_Espildora1979" with X = 1,2,3
+                        "GXpY_Varas1985" with X = 1,2,3,4 and Y=10,25,50,75,90
+                Defaults to 'norm'.
             loc (float): Number between 0 - 1 to specify location parameter
                 for statistic-like rainfall distribution. Defaults to 0.5.
             scale (float): Number between 0 -1 to specify scale parameter
                 for statistic-like rainfall distribution. Defaults to 0.1.
             **kwargs are given to scipy.rv_continuous.pdf
+
+        Examples:
+            RainStorm('SCS_I24')
+            RainStorm('G2_Benitez1985')
+            RainStorm('G3_Espildora1979')
+            RainStorm('G4p10_Varas1985')
+            RainStorm('norm', loc=0.5, scale=0.2)
+            RainStorm('gamma', loc=0, scale=0.15, a=2)
         """
 
         self.kind = kind
