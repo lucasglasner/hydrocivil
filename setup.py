@@ -11,7 +11,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="hydrocivil",
-    version="0.5",
+    version="0.6",
     author="Lucas Glasner",
     author_email="lgvivanco96@gmail.com",
     description="A package for hydrological methods in civil and environmental engineering",
