@@ -2,7 +2,7 @@
 
 Typical tasks related to water resources and engineering require quick calculations of hydrological phenomena such as: storm hyetographs, soil infiltration, flood hydrographs, flood routing through channels or reservoirs, etc. With this purpose in mind, the package is presented as an alternative to perform calculations that are usually done in tedious spreadsheets in a fast pythonic way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. The package is not intended to be a replacement for larger hydrological models (e.g. HEC-HMS), at least not for now, but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
 
-The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook. 
+The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook.
 
 ## Dependencies
 
@@ -12,6 +12,7 @@ Before installing, check your environment for the following packages:
 * xarray, rasterio, rioxarray
 * shapely, geopandas
 * networkx
+* whitebox_workflows (optional)
 
 ## Installation
 
