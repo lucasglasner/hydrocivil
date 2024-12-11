@@ -1,8 +1,8 @@
 ## hydrocivil: a package for hydrological methods in civil and enviromental engineering
 
-Typical tasks related to water resources and engineering require fast calculations of hydrological phenomena such as: flood hydrographs, flood routing, evapotranspiration, infiltration, among others. With this purpose in mind, hydrocivil is presented as an alternative package to perform calculations that are usually done in tedious spreadsheets in a flexible and adjustable way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. The package is not intended to be a replacement for larger hydrological models (e.g. HEC-HMS), but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
+Typical tasks related to water resources and engineering require quick calculations of hydrological phenomena such as: storm hyetographs, soil infiltration, flood hydrographs, flood routing through channels or reservoirs, etc. With this purpose in mind, the package is presented as an alternative to perform calculations that are usually done in tedious spreadsheets in a fast pythonic way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. The package is not intended to be a replacement for larger hydrological models (e.g. HEC-HMS), at least not for now, but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
 
-The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook. The package is 100% written in English in order to maintain consistency with the syntax and basic classes/functions of the Python language.
+The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook. 
 
 ## Dependencies
 
@@ -42,8 +42,8 @@ basin, rnetwork, dem, cn = load_example_data()
 
 # Create RiverBasin object and compute properties
 wshed = RiverBasin('Example', basin, rnetwork, dem, cn, amc='wet')
-wshed = wshed.compute_params()
-wshed.plot()
+wshed = wshed.compute_params()  # <- compute geomorphological parameters (SI units)
+wshed.plot() # Check results (e.g basin polygon, identified main river, etc)
 ```
 
     <Axes: title={'left': 'Example'}>
@@ -69,7 +69,7 @@ storm.plot(plot_Losses=True, kind='bar', width=1, legend=True, Losses_kwargs={'c
 
 ```python
 # Compute the basin SCS unit hydrograph for the storm (UH related to the storm timestep)
-wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep)
+wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph. 
 
 # Compute the flood hydrograph as the convolution of the design storm with the unit hydrograph
 wshed.UnitHydro.convolve(storm.Effective_Hyetograph).plot()
@@ -79,31 +79,17 @@ wshed.UnitHydro.convolve(storm.Effective_Hyetograph).plot()
 
 ![png](image/example_hydrograph.png)
 
-## References
+## Reference
+
+* Glasner, L. (2024).  *hydrocivil: A package for hydrological methods in civil and environmental engineering* . GitHub. Retrieved from [https://github.com/lucasglasner/hydrocivil](https://github.com/lucasglasner/hydrocivil).
 
 ```bib
-@article{NCRS_NEH630,
-  title={National Engineering Handbook Part 630 - Hydrology},
-  author={Natural Resources Conservation Service, United States Department of Agriculture (USDA)},
-  year={}
+@misc{hydrocivil2024,
+  author = {Glasner, L.},
+  title = {hydrocivil: a package for hydrological methods in civil and enviromental engineering},
+  year = {2024},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/lucasglasner/hydrocivil}},
 }
-
-@article{mcarreteras,
-  title={Manual de Carreteras},
-  author={Dirección de vialidad, Ministerio de Obras Públicas (MOP), Chile},
-  year={2022}
-}
-
-@article{DGA_modificacioncauces,
-  title={Guías metodológicas para presentación y revisión técnica de proyectos de modificación de cauces naturales y artificiales.},
-  author={Dirección General de Aguas (DGA), Ministerio de Obras Públicas (MOP), Chile},
-  year={2016}
-}
-
-@article{DGA_manualcrecidas,
-  title={Manual de cálculo de crecidas y caudales mínimos en cuencas sin información fluviométrica},
-  author={Dirección general de Aguas (DGA), Ministerio de Obras Públicas (MOP), Chile},
-  year={1995},
-}
-
 ```
