@@ -78,7 +78,7 @@ def duration_coef(storm_duration,
     "duration_threshold".
 
     References:
-        Bell, F.C. (1969) Generalized pr-Duration-Frequency
+        Bell, F.C. (1969) Generalized Rainfall-Duration-Frequency
         Relationships. Journal of Hydraulic Division, ASCE, 95, 311-327.
 
         Grunsky (???)
@@ -121,8 +121,8 @@ class RainStorm(object):
     The class can be used to build rainstorms that follow any of scipy
     theoretical distributions (e.g 'norm', 'skewnorm', 'gamma', etc) or 
     the empirical rain distributions of the SCS type I, IA, II, III and the 
-    Chilean synthetic hyetographs of (Espildora et al 1979),
-    (Benitez et al 1985) and (Varas et al 1985). 
+    Chilean synthetic hyetographs of (Espildora and Echavarría 1979),
+    (Benitez and Verni 1985) and (Varas 1985). 
 
     Examples:
         #### Distribute a 24 hour 100 mm rainstorm in a 12 hour gaussian pulse

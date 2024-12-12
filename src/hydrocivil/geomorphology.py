@@ -198,7 +198,7 @@ def tc_SCS(mriverlen,
 
     Reference:
         Part 630 National Engineering Handbook. Chapter 15. NRCS 
-        Unitaded States Deprtment of Agriculture.
+        United States Department of Agriculture.
 
     Args:
         mriverlen (float): Main river length in (km)

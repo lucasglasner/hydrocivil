@@ -18,12 +18,13 @@ import xarray as xr
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
-from .unithydrographs import SynthUnitHydro
+from .unithydrographs import SynthUnitHydro as SynthUnitHydro_Class
 from .geomorphology import get_main_river, concentration_time
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .misc import raster_distribution
 from .global_vars import ABZONE_POLYGON
-from .abstractions import cn_correction
+from .abstractions import (cn_correction, SCS_EffectiveRainfall,
+                           SCS_EquivalentCurveNumber)
 
 # ---------------------------------------------------------------------------- #
 
@@ -350,6 +351,29 @@ class RiverBasin(object):
             warnings.warn('Raster counting Error:', e, self.fid)
         return counts
 
+    def get_equivalent_curvenumber(self, pr_range=(1, 1000), **kwargs):
+        """
+        This routine calculates the dependence of the watershed curve number
+        on precipitation due to land cover heterogeneities. 
+        Args:
+            pr_range (tuple): Minimum and maximum possible precipitations
+            **kwargs are given to SCS_EffectiveRainfall routine.
+
+        Returns:
+            (array_like): Basin curve number as a function of precipitation (mm)
+        """
+        cn_counts = self.cn_counts['cn']
+        weights = self.cn_counts['weights']
+        pr = np.linspace(pr_range[0], pr_range[1], 1000)
+        pr_eff = SCS_EffectiveRainfall(pr, cn=cn_counts, weights=weights,
+                                       **kwargs)
+        curve = SCS_EquivalentCurveNumber(pr, pr_eff, **kwargs)
+        curve = pd.Series(curve, index=pr)
+        curve.loc[0] = 100
+        curve = curve.sort_index()
+        self.cn_equivalent = curve
+        return curve
+
     def compute_params(self, dem_kwargs={}, geography_kwargs={},
                        river_network_kwargs={}):
         """
@@ -415,7 +439,8 @@ class RiverBasin(object):
                     f'No valid {method} zone for {self.fid} basin')
             else:
                 self.params.loc['zone_AB'] = ABZONE_POLYGON[mask].zone.item()
-        SUH = SynthUnitHydro(self.params[self.fid], method, **kwargs).compute()
+        SUH = SynthUnitHydro_Class(self.params[self.fid], method, **kwargs)
+        SUH = SUH.compute()
         self.UnitHydro = SUH
         return self
 
