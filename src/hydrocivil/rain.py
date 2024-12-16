@@ -312,9 +312,14 @@ class RainStorm(object):
                                     output_core_dims=[['time']],
                                     vectorize=True)
             losses = losses.reindex({'time': time})
-            losses = losses.transpose(*storm.dims)
-            self.losses = losses.diff('time').fillna(0)
-            self.pr_eff = self.pr-self.losses
+            losses = losses.transpose(*storm.dims).diff('time')
+            losses = losses.where(losses >= 0).fillna(0)
+
+            pr_eff = self.pr-losses
+            pr_eff = pr_eff.where(pr_eff >= 0).fillna(0)
+
+            self.losses = losses
+            self.pr_eff = pr_eff
         else:
             raise ValueError(f'{method} unknown infiltration method.')
         return self
