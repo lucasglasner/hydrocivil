@@ -120,6 +120,9 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
     if np.isscalar(pr):
         return SCS_EffectiveRainfall(np.array([pr]), cn, r, weights, **kwargs)
 
+    if isinstance(pr, pd.Series) or isinstance(pr, pd.DataFrame):
+        pr = pr.values
+
     if np.isscalar(cn):
         cn = np.full(pr.shape, cn)
         return SCS_EffectiveRainfall(pr, cn, r, weights, **kwargs)
@@ -132,13 +135,15 @@ def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
 
         pr = np.stack([pr]*len(cn))
         pr_eff = (pr-Ia)**2/(pr-Ia+S)
+        # pr_eff = np.where(pr<=Ia, 0, pr_eff)
         pr_eff[pr <= Ia] = 0
         pr_eff = np.stack(weights*pr_eff.T).sum(axis=-1)
     elif (cn.shape == pr.shape):
         S = SCS_MaximumRetention(cn, **kwargs)
         Ia = r*S
         pr_eff = (pr-Ia)**2/(pr-Ia+S)
-        pr_eff[np.where(pr <= Ia)] = 0
+        # pr_eff = np.where(pr<=Ia, 0, pr_eff)
+        pr_eff[pr <= Ia] = 0
     else:
         text = 'pr and cn must have the same size for index-wise computation.'
         text = text+' If not you must give weights so the program can compute '

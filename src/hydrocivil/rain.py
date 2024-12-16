@@ -12,11 +12,12 @@ import numpy as np
 import pandas as pd
 import warnings
 import copy as pycopy
+import xarray as xr
 
 from .abstractions import SCS_Abstractions
 from .global_vars import SHYETO_DATA
+from .misc import obj_to_xarray
 
-from scipy.interpolate import interp1d
 import scipy.stats as st
 
 # ----------------------- duration coefficient routines ---------------------- #
@@ -128,7 +129,7 @@ class RainStorm(object):
         #### Distribute a 24 hour 100 mm rainstorm in a 12 hour gaussian pulse
         -> storm = RainStorm('norm')
         -> storm = storm.compute(timestep=0.5, duration=12, rainfall=100)
-        -> storm.Hyetograph.plot()
+        -> storm.pr.plot()
 
         #### Create a 24 hour storm following the SCS type I hyetograph with 
         #### pulses every 10 minutes and a total precipitation of 75 mm.
@@ -136,19 +137,17 @@ class RainStorm(object):
         -> storm = RainStorm('SCS_I24')
         -> storm = storm.compute(timestep=10/60, duration=24, rainfall=75)
         -> storm = storm.infiltrate(method='SCS', cn=75)
-        -> storm.Hyetograph.plot()
-        -> storm.Losses.plot()
+        -> storm.pr.plot()
+        -> storm.losses.plot()
 
         #### Create a narrow and wide gaussian pulse of 100 mm in 12 hours
         -> narrow = RainStorm('norm', loc=0.5, scale=0.05)
         -> wide   = RainStorm('norm', loc=0.5, scale=0.15)
-        -> narrow = storm.compute(timestep=0.5, duration=12, rainfall=100,
-                                  ref_duration=12)
-        -> wide   = storm.compute(timestep=0.5, duration=12, rainfall=100,
-                                  ref_duration=12)
+        -> narrow = storm.compute(timestep=0.5, duration=12, rainfall=100)
+        -> wide   = storm.compute(timestep=0.5, duration=12, rainfall=100)
     """
 
-    def synthetic_hyetograph(self, loc, scale, flip=False, **kwargs):
+    def synth_rain(self, loc, scale, flip=False, n=1000, **kwargs):
         """
         Synthetic hyetograph generator function. If the storm type given
         in the class constructor is part of any of scipy distributions 
@@ -162,23 +161,25 @@ class RainStorm(object):
                 hyetographs. Defaults to 0.1.
             flip (bool): Whether to flip the distribution along the x-axis
                 or not. Defaults to False.
+            n (int, optional): Number of records in the dimensionless storm
             **kwargs are given to scipy.rv_continuous.pdf
 
         Returns:
             (pandas.Series): Synthetic Hyetograph 1D Table
         """
+        time_dimless = np.linspace(0, 1, n)
         kind = self.kind
         scipy_distrs = [d for d in dir(st)
                         if isinstance(getattr(st, d), st.rv_continuous)]
         if kind in scipy_distrs:
             distr = eval(f'st.{kind}')
-            shyeto = distr.pdf(np.linspace(0, 1), loc=loc, scale=scale,
+            shyeto = distr.pdf(time_dimless, loc=loc, scale=scale,
                                **kwargs)
             shyeto = shyeto/np.sum(shyeto)
             if flip:
-                shyeto = pd.Series(shyeto[::-1], index=np.linspace(0, 1))
+                shyeto = pd.Series(shyeto[::-1], index=time_dimless)
             else:
-                shyeto = pd.Series(shyeto, index=np.linspace(0, 1))
+                shyeto = pd.Series(shyeto, index=time_dimless)
         else:
             shyeto = SHYETO_DATA[kind]
         return shyeto
@@ -216,13 +217,12 @@ class RainStorm(object):
         self.timestep = None
         self.duration = None
         self.rainfall = None
-        self.ref_duration = None
-        self.Hyetograph = None
-        self.Effective_Hyetograph = None
-        self.Losses = None
+        self.infiltration = None
 
-        self.SynthHyeto = self.synthetic_hyetograph(loc=loc, scale=scale,
-                                                    **kwargs)
+        self.pr = None
+        self.pr_eff = None
+        self.losses = None
+        self.pr_dimless = self.synth_rain(loc=loc, scale=scale, **kwargs)
 
     def __repr__(self) -> str:
         """
@@ -230,11 +230,9 @@ class RainStorm(object):
         Returns:
             str: Some metadata
         """
-        text = f'Storm type: {self.kind}\n'
-        if type(self.Hyetograph) != type(None):
-            text = text+f'Total rainfall:\n{self.Hyetograph.sum(axis=0)}\n'
-        if type(self.Losses) != type(None):
-            text = text+f'Total losses:\n{self.Losses.sum(axis=0)}\n'
+        text = f"RainStorm(kind='{self.kind}', timestep={self.timestep}, "
+        text = text+f"duration={self.duration}, "
+        text = text+f"infiltration='{self.infiltration}')"
         return text
 
     def copy(self):
@@ -242,6 +240,52 @@ class RainStorm(object):
         Create a deep copy of the class itself
         """
         return pycopy.deepcopy(self)
+
+    def compute(self, timestep, duration, rainfall, n=1,
+                interp_kwargs={'method': 'linear'}):
+        """
+        Trigger computation of design storm for a given timestep, storm 
+        duration, and total precipitation.
+
+        Args:
+            timestep (float): Storm timestep or resolution in hours
+            duration (float): Storm duration in hours
+            rainfall (array_like or float): Total precipitation in mm. 
+            n (int, optional): If n=1 the storm time length will be equal to 
+                the user storm duration. If n>1 it will fill the time index with
+                n zeros. Defaults to 1.
+            interp_kwargs (dict): extra arguments for the interpolation function
+
+        Returns:
+            Updated class
+        """
+        self.timestep = timestep
+        self.duration = duration
+        self.rainfall = rainfall
+
+        xr_rainfall = obj_to_xarray(rainfall).squeeze()
+        dims = {dim: xr_rainfall[dim].shape[0] for dim in xr_rainfall.dims}
+        time1 = np.arange(0, duration, timestep)
+        time2 = np.arange(0, duration+timestep, timestep)
+        time3 = np.arange(0, duration+n*timestep, timestep)
+
+        # Build dimensionless storm (accumulates 1 mm)
+        shyeto = obj_to_xarray(self.pr_dimless.cumsum(), dims=('time'),
+                               coords={'time': self.pr_dimless.index})
+        shyeto = shyeto.interp(coords={'time': np.linspace(0, 1, len(time1))},
+                               **interp_kwargs)
+        shyeto.coords['time'] = time1
+
+        # Build real storm for the given rainfall
+        storm = shyeto.expand_dims(dim=dims)*xr_rainfall
+        storm = storm.reindex({'time': time2}).shift({'time': 1})
+        storm = storm.diff('time').transpose(*(['time']+list(dims.keys())))
+        storm = storm.where(storm >= 0).fillna(0)
+        storm = storm.reindex({'time': time3}).fillna(0)
+        storm.name = 'pr'
+
+        self.pr = storm
+        return self
 
     def infiltrate(self, method='SCS', **kwargs):
         """
@@ -253,88 +297,24 @@ class RainStorm(object):
         Returns:
             Updated class
         """
-        storm = self.Hyetograph
+        self.infiltration = method
+        storm = self.pr
         if method == 'SCS':
-            storm_cum = storm.cumsum()
-            losses = SCS_Abstractions(storm_cum, **kwargs)
-            self.Losses = losses.diff().fillna(0)
-            self.Effective_Hyetograph = self.Hyetograph-self.Losses
+            cn = kwargs['cn']
+            kwargs = kwargs.copy()
+            kwargs.pop('cn', None)
+
+            storm_cum = storm.cumsum('time')
+            time = np.arange(0, self.duration+self.timestep, self.timestep)
+            losses = xr.apply_ufunc(SCS_Abstractions, storm_cum, cn,
+                                    kwargs=kwargs,
+                                    input_core_dims=[['time'], []],
+                                    output_core_dims=[['time']],
+                                    vectorize=True)
+            losses = losses.reindex({'time': time})
+            losses = losses.transpose(*storm.dims)
+            self.losses = losses.diff('time').fillna(0)
+            self.pr_eff = self.pr-self.losses
         else:
             raise ValueError(f'{method} unknown infiltration method.')
         return self
-
-    def compute(self, timestep, duration, rainfall, ref_duration=24,
-                interp_kwargs={}, **kwargs):
-        """
-        Trigger computation of design storm for a given timestep, storm 
-        duration, and precipitation for a reference storm (pr and ref_duration)
-
-        Args:
-            timestep (float): Storm timestep or resolution in hours
-            duration (float): Total storm duration in hours
-            rainfall (1D array_like or float): Total precipitation in mm. 
-                Usually a function of the return period. 
-            ref_duration (float): Duration of the given reference precipitation.
-                Defaults to 24h.
-            interp_kwargs (dict): extra arguments for the interpolation function
-            **kwargs are given to the synthetic hyetograph generator
-
-        Returns:
-            Updated class
-        """
-        self.timestep = timestep
-        self.duration = duration
-        self.rainfall = rainfall
-        self.ref_duration = ref_duration
-        time = np.arange(0, duration+timestep, timestep)
-
-        func = interp1d(self.SynthHyeto.index*duration, self.SynthHyeto.values,
-                        fill_value='extrapolate', **interp_kwargs)
-        storm = pd.Series(func(time), index=time).cumsum()
-
-        if np.isscalar(rainfall):
-            pr_fix = rainfall*duration_coef(duration, ref_duration)
-            storm = (storm*pr_fix/storm.max()).diff().fillna(0)
-        else:
-            if not isinstance(rainfall, pd.Series):
-                rainfall = pd.Series(rainfall)
-            storm = [(storm*p*duration_coef(duration, ref_duration) /
-                      storm.max()).diff().fillna(0) for p in rainfall]
-            storm = pd.concat(storm, axis=1)
-            storm.columns = rainfall.index
-        self.Hyetograph = storm
-        return self.copy()
-
-    def plot(self,
-             plot_Losses=False,
-             Hyetograph_kwargs={},
-             Losses_kwargs={},
-             **kwargs):
-        """
-        Plot a simple time vs rain graph
-
-        Raises:
-            RuntimeError: If a Hyetograph isnt already computed
-        """
-        if type(self.Hyetograph) != type(None):
-            axes = self.Hyetograph.plot(label='Rainfall', **Hyetograph_kwargs,
-                                        **kwargs)
-            axes = axes.axes
-        else:
-            raise RuntimeError('Compute a Hyetograph before plotting!')
-        if type(self.Losses) != type(None):
-            if plot_Losses:
-                self.Losses.plot(ax=axes, label='Abstractions',
-                                 **Losses_kwargs, **kwargs)
-        xticks = np.arange(0, self.duration/self.timestep+1, 1)
-        n = int(len(xticks)/self.duration)
-        if n != 0:
-            axes.set_xticks(xticks[::n])
-        else:
-            axes.set_xticks(xticks)
-        if "kind" not in kwargs.keys():
-            axes.set_xlim(0, self.duration+self.timestep)
-        else:
-            if 'bar' != kwargs['kind']:
-                axes.set_xlim(0, self.duration+self.timestep)
-        return axes

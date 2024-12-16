@@ -404,22 +404,22 @@ class SynthUnitHydro(object):
     manual. 
 
     Examples:
-        #### Compute SCS UH for a storm duration of 1 hour. Show params and
-        #### S-Curve
+        + Compute SCS UH for a storm duration of 1 hour. Show params and
+        + S-Curve
         -> suh = SynthUnitHydro(basin_params, method='SCS', timestep=1)
         -> suh.compute()
         -> suh.UnitHydroParams 
         -> suh.SHydrograph
 
-        #### Compute convolution of unit hydrograph and a series of rainfall
+        + Compute convolution of unit hydrograph and a series of rainfall
         -> suh.convolve(rainfall)
 
-        #### Change duration of unit hydrograph to 30 minutes and compute 
-        #### convolution with a new series of 30 minute rainfall pulses
+        + Change duration of unit hydrograph to 30 minutes and compute 
+        + convolution with a new series of 30 minute rainfall pulses
         -> suh.update_duration(30/60).convolve(rainfall2)
     """
 
-    def __init__(self, basin_params, method, timestep=30/60):
+    def __init__(self, basin_params, method, **kwargs):
         """
         Synthetic unit hydrograph (SUH) constructor.
 
@@ -432,10 +432,11 @@ class SynthUnitHydro(object):
         """
         self.method = method
         self.basin_params = pd.Series(basin_params)
-        self.timestep = timestep
+        self.timestep = None
         self.UnitHydro = None
         self.UnitHydroParams = None
         self.SHydrograph = None
+        self.kwargs = kwargs
 
     def __repr__(self) -> str:
         """
@@ -529,8 +530,7 @@ class SynthUnitHydro(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, method=None, interp_kwargs={'kind': 'quadratic'},
-                **kwargs):
+    def compute(self, timestep=30/60, interp_kwargs={'kind': 'quadratic'}):
         """
         Trigger calculation of desired unit hydrograph
 
@@ -544,14 +544,14 @@ class SynthUnitHydro(object):
         Returns:
             self: Updated Class
         """
-        if type(method) == type(None):
-            method = self.method
+        self.timestep = timestep
+        method = self.method
         if method == 'SCS':
             params = ['area', 'mriverlen', 'meanslope', 'curvenumber']
             params = self.basin_params[params]
             uh, uh_params = SUH_SCS(tstep=self.timestep,
                                     interp_kwargs=interp_kwargs,
-                                    **params, **kwargs)
+                                    **params, **self.kwargs)
 
         elif method == 'Arteaga&Benitez':
             params = ['area', 'mriverlen', 'out2centroidlen',
@@ -559,14 +559,14 @@ class SynthUnitHydro(object):
             params = self.basin_params[params]
             uh, uh_params = SUH_ArteagaBenitez(tstep=self.timestep,
                                                interp_kwargs=interp_kwargs,
-                                               **params, **kwargs)
+                                               **params, **self.kwargs)
 
         elif method == 'Gray':
             params = ['area', 'mriverlen', 'meanslope']
             params = self.basin_params[params]
             uh, uh_params = SUH_Gray(tstep=self.timestep,
                                      interp_kwargs=interp_kwargs,
-                                     **params, **kwargs)
+                                     **params, **self.kwargs)
 
         else:
             raise ValueError(f'method="{method}" not valid!')

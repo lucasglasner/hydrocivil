@@ -18,7 +18,7 @@ import xarray as xr
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
-from .unithydrographs import SynthUnitHydro as SynthUnitHydro_Class
+from .unithydrographs import SynthUnitHydro as SUH
 from .geomorphology import get_main_river, concentration_time
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .misc import raster_distribution
@@ -39,7 +39,7 @@ class RiverBasin(object):
     derive basin-wide properties and hydrological computations. 
 
     Examples:
-        #### Compute geomorphometric parameters
+        + Compute geomorphometric parameters
 
         -> import geopandas as gpd
         -> import rioxarray as rxr
@@ -51,26 +51,26 @@ class RiverBasin(object):
         -> wshed = RiverBasin('mybasin', basin, rivers, dem, cn)
         -> wshed.compute_params()
 
-        #### Use curve number corrected by a wet/dry condition
+        + Use curve number corrected by a wet/dry condition
         -> wshed = RiverBasin('mybasin', basin, rivers, dem, cn, amc='wet')
         -> wshed.compute_params()
 
-        #### Change a parameter by hand
+        + Change a parameter by hand
         -> wshed.set_parameter('area', 1000)
 
-        #### Check hypsometric curve
+        + Check hypsometric curve
         -> curve = wshed.get_hypsometric_curve(bins='auto')
 
-        #### Check fraction of area below 1400 meters
+        + Check fraction of area below 1400 meters
         -> fArea = wshed.area_below_height(1400)
 
-        #### Access basin params as pandas Data Frame
+        + Access basin params as pandas Data Frame
         -> wshed.params
 
-        #### Compute SCS unit hydrograph for rain pulses of 1 hour
+        + Compute SCS unit hydrograph for rain pulses of 1 hour
         -> wshed.SynthUnitHydro(kind='SCS', timestep=1)
 
-        #### Compute flood hydrograph with a series of rainfall
+        + Compute flood hydrograph with a series of rainfall
         -> whsed.UnitHydro.convolve(rainfall)
     """
 
@@ -122,18 +122,18 @@ class RiverBasin(object):
         self.fid = fid
 
         # Vectors
-        self.basin = basin
-        self.rivers = rivers
+        self.basin = basin.copy()
+        self.rivers = rivers.copy()
         self.rivers_main = pd.Series([])
 
         # Terrain
-        self.dem = dem.rio.write_nodata(-9999).squeeze()
+        self.dem = dem.rio.write_nodata(-9999).squeeze().copy()
         self.dem = self.dem.to_dataset(name='elevation')
         self.dem.encoding = dem.encoding
 
         # Curve Number
         if type(cn) != type(None):
-            self.cn = cn.rio.write_nodata(-9999).squeeze()
+            self.cn = cn.rio.write_nodata(-9999).squeeze().copy()
             self.cn = cn_correction(self.cn, amc=amc)
             self.cn_counts = pd.DataFrame([])
         else:
@@ -178,6 +178,29 @@ class RiverBasin(object):
         """
         self.params.loc[index, :] = value
         return self
+
+    def get_basin_outlet(self, n=3):
+        """
+        This function computes the basin outlet point defined as the minimum
+        point of minimum elevation along the basin boundary.
+
+        Args:
+            n (int, optional): Number of DEM pixels to consider for the
+                elevation boundary. Defaults to 3.
+
+        Returns:
+            outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
+                coordinates.
+        """
+        dx = (max(self.dem.y.diff('y')[0], self.dem.x.diff('x')[0])).item()
+        basin_boundary = self.basin.boundary
+        dem_boundary = self.dem.rio.clip(basin_boundary.buffer(dx*n)).elevation
+        dem_boundary = dem_boundary.where(dem_boundary != -9999)
+        outlet_point = dem_boundary.isel(**dem_boundary.argmin(['y', 'x']))
+        outlet_y, outlet_x = outlet_point.y.item(), outlet_point.x.item()
+        self.basin['outlet_x'] = outlet_x
+        self.basin['outlet_y'] = outlet_y
+        return (outlet_y, outlet_x)
 
     def process_gdaldem(self, varname, overwrite=True,
                         open_rasterio_kwargs={}, **kwargs):
@@ -237,15 +260,26 @@ class RiverBasin(object):
         interp_func = interp1d(curve.index.values, curve.values)
         return interp_func(height).item()
 
-    def process_geography(self):
+    def process_geography(self, n=3, **kwargs):
         """
         Compute geographical parameters of the basin
+
+        Args:
+            n (int, optional): Number of DEM pixels to consider for the
+                elevation boundary. Defaults to 3.
+            **kwargs are given to basin_geographical_params function.
 
         Returns:
             self: updated class
         """
         try:
-            geo_params = basin_geographical_params(self.fid, self.basin)
+            cond1 = 'outlet_x' not in self.basin.columns
+            cond2 = 'outlet_y' not in self.basin.columns
+            if cond1 or cond2:
+                outlet_y, outlet_x = self.get_basin_outlet(n=n)
+
+            geo_params = basin_geographical_params(self.fid, self.basin,
+                                                   **kwargs)
         except Exception as e:
             geo_params = pd.DataFrame([], index=[self.fid])
             warnings.warn('Geographical Parameters Error:', e, self.fid)
@@ -439,16 +473,21 @@ class RiverBasin(object):
                     f'No valid {method} zone for {self.fid} basin')
             else:
                 self.params.loc['zone_AB'] = ABZONE_POLYGON[mask].zone.item()
-        SUH = SynthUnitHydro_Class(self.params[self.fid], method, **kwargs)
-        SUH = SUH.compute()
-        self.UnitHydro = SUH
+        uh = SUH(self.params[self.fid], method)
+        uh = uh.compute(**kwargs)
+        self.UnitHydro = uh
         return self
 
-    def plot(self, basin_kwargs={}, rivers_kwargs={}, rivers_main_kwargs={}):
+    def plot(self, outlet_kwargs={'ec': 'k', 'color': 'tab:red', 'zorder': 10},
+             basin_kwargs={'color': 'silver', 'edgecolor': 'k'},
+             rivers_kwargs={'color': 'tab:blue'},
+             rivers_main_kwargs={'color': 'tab:red'}):
         """
         Simple plot function for the basin taking account polygon and rivers
 
         Args:
+            outlet_kwargs (dict, optional): Arguments for the basin outlet.
+                Defaults to {}.
             basin_kwargs (dict, optional): Arguments for the basin.
                 Defaults to {}.
             rivers_kwargs (dict, optional): Arguments for the rivers.
@@ -459,13 +498,13 @@ class RiverBasin(object):
         Returns:
             matplotlib axes instance
         """
-        plot_basin = self.basin.plot(color='silver', edgecolor='k',
-                                     **basin_kwargs)
+        plot_basin = self.basin.plot(**basin_kwargs)
         plot_basin.axes.set_title(self.fid, loc='left')
         self.rivers.plot(ax=plot_basin.axes, **rivers_kwargs)
+        plot_basin.axes.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
+                                **outlet_kwargs)
         if len(self.rivers_main) != 0:
-            self.rivers_main.plot(ax=plot_basin.axes, color='tab:red',
-                                  **rivers_main_kwargs)
+            self.rivers_main.plot(ax=plot_basin.axes, **rivers_main_kwargs)
         return plot_basin.axes
 
 

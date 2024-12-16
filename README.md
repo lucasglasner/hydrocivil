@@ -1,6 +1,6 @@
 ## hydrocivil: a package for hydrological methods in civil and enviromental engineering
 
-Typical tasks related to water resources and engineering require quick calculations of hydrological phenomena such as: storm hyetographs, soil infiltration, flood hydrographs, flood routing through channels or reservoirs, etc. With this purpose in mind, the package is presented as an alternative to perform calculations that are usually done in tedious spreadsheets in a fast pythonic way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. The package is not intended to be a replacement for larger hydrological models (e.g. HEC-HMS), at least not for now, but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
+Typical tasks related to water resources and engineering require quick calculations of hydrological phenomena such as: storm hyetographs, soil infiltration, flood hydrographs, flood routing through channels or reservoirs, etc. With this purpose in mind, the package is presented as an alternative to perform calculations that are usually done in tedious spreadsheets in a fast pythonic way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. At least not for now, the package isnt intended to be a replacement of larger hydrological models (e.g. HEC-HMS), but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
 
 The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook.
 
@@ -59,7 +59,9 @@ storm = RainStorm('SCS_I24')
 storm = storm.compute(timestep=0.5, duration=24, rainfall=100)
 # Use SCS method for abstractions with the watershed average curve number
 storm = storm.infiltrate(method='SCS', cn=wshed.params.loc['curvenumber'].item())
-storm.plot(plot_Losses=True, kind='bar', width=1, legend=True, Losses_kwargs={'color':'tab:purple'}, ec='k')
+
+storm.pr.to_series().plot(kind='bar', width=1, ec='k')
+storm.losses.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
 ```
 
     <Axes: >

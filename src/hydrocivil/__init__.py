@@ -15,7 +15,7 @@ from . import unithydrographs
 from . import rain
 from . import watersheds
 from . import web
-
+from . import wb_tools
 
 __all__ = ['misc', 'abstractions', 'geomorphology', 'unithydrographs',
-           'rain', 'watersheds', 'web']
+           'rain', 'watersheds', 'web', 'wb_tools']

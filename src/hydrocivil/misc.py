@@ -9,9 +9,45 @@
 
 import os
 import pandas as pd
+import xarray as xr
 import numpy as np
 
 # ------------------------------------ gis ----------------------------------- #
+
+
+def obj_to_xarray(obj, **kwargs):
+    """
+    This function recieves an object and transform it to an xarray object.
+    If input is already an xarray object the function will do nothing. 
+    Only accepts pandas series, dataframes, numpy arrays, lists, tuples,
+    ints or floats.
+
+    Args:
+        obj (array_like): input n-dimensional array.
+        **kwargs are given to xarray.DataArray constructor
+
+    Raises:
+        RuntimeError: If input object is not a pandas series, dataframe, 
+            list, tuple, int, float, xarray or numpy object.
+
+    Returns:
+        (xarray): Transformed array into an xarray style.
+    """
+    if isinstance(obj, np.ndarray):
+        new_xarray = xr.DataArray(obj, **kwargs)
+    elif isinstance(obj, pd.Series) or isinstance(obj, pd.DataFrame):
+        return obj_to_xarray(obj.values, **kwargs)
+    elif isinstance(obj, list) or isinstance(obj, tuple):
+        return obj_to_xarray(np.array(obj), **kwargs)
+    elif isinstance(obj, int) or isinstance(obj, float):
+        return obj_to_xarray(np.array([obj]), **kwargs)
+    elif isinstance(obj, xr.DataArray) or isinstance(obj, xr.Dataset):
+        new_xarray = obj
+    else:
+        text = f'Only ints, floats, lists, tuples, pandas, numpy or xarray '
+        text = f'{text} objects can be used. Got {type(obj)} instead.'
+        raise RuntimeError(text)
+    return new_xarray
 
 
 def chile_region(point, regions):
