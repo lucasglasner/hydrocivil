@@ -19,7 +19,7 @@ from osgeo import gdal
 from scipy.interpolate import interp1d
 
 from .unithydrographs import SynthUnitHydro as SUH
-from .geomorphology import get_main_river, concentration_time
+from .geomorphology import get_main_river, basin_outlet
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .misc import raster_distribution
 from .global_vars import ABZONE_POLYGON
@@ -181,7 +181,7 @@ class RiverBasin(object):
 
     def get_basin_outlet(self, n=3):
         """
-        This function computes the basin outlet point defined as the minimum
+        This function computes the basin outlet point defined as the
         point of minimum elevation along the basin boundary.
 
         Args:
@@ -192,12 +192,7 @@ class RiverBasin(object):
             outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
                 coordinates.
         """
-        dx = (max(self.dem.y.diff('y')[0], self.dem.x.diff('x')[0])).item()
-        basin_boundary = self.basin.boundary
-        dem_boundary = self.dem.rio.clip(basin_boundary.buffer(dx*n)).elevation
-        dem_boundary = dem_boundary.where(dem_boundary != -9999)
-        outlet_point = dem_boundary.isel(**dem_boundary.argmin(['y', 'x']))
-        outlet_y, outlet_x = outlet_point.y.item(), outlet_point.x.item()
+        outlet_y, outlet_x = basin_outlet(self.basin, self.dem.elevation, n=n)
         self.basin['outlet_x'] = outlet_x
         self.basin['outlet_y'] = outlet_y
         return (outlet_y, outlet_x)

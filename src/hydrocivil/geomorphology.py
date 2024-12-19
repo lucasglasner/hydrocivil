@@ -47,6 +47,30 @@ def get_main_river(river_network):
     return main_river
 
 
+def basin_outlet(basin, dem, n=3):
+    """
+    This function computes the basin outlet point defined as the
+    point of minimum elevation along the basin boundary.
+
+    Args:
+        basin (geopandas.GeoDataFrame): basin polygon
+        dem (xarray.DataArray): Digital elevation model
+        n (int, optional): Number of DEM pixels to consider for the
+            elevation boundary. Defaults to 3.
+
+    Returns:
+        outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
+            coordinates.
+    """
+    dx = (max(dem.y.diff('y')[0], dem.x.diff('x')[0])).item()
+    basin_boundary = basin.boundary
+    dem_boundary = dem.rio.clip(basin_boundary.buffer(dx*n))
+    dem_boundary = dem_boundary.where(dem_boundary != -9999)
+    outlet_point = dem_boundary.isel(**dem_boundary.argmin(['y', 'x']))
+    outlet_y, outlet_x = outlet_point.y.item(), outlet_point.x.item()
+    return (outlet_y, outlet_x)
+
+
 def basin_geographical_params(fid, basin, outlet=None):
     """
     Given a basin id and a basin polygon as a geopandas object 
@@ -57,7 +81,7 @@ def basin_geographical_params(fid, basin, outlet=None):
     Args:
         fid (_type_): basin identifier
         basin (geopandas.GeoDataFrame): basin polygon
-
+        outlet (array, optional): shape (2,) array with basin x,y outlet point
     Raises:
         RuntimeError: If outlet == None and the basin doesnt have the drainage
             point in the attribute table. (outlet_x and outlet_y columns)
@@ -71,9 +95,9 @@ def basin_geographical_params(fid, basin, outlet=None):
         basin['outlet_y'] = outlet_y
 
     if not (('outlet_x' in basin.columns) or ('outlet_y' in basin.columns)):
-        error = 'Basin polyugon attribute table must have'
-        error = error+' an "outlet_x" and "outlet_y" columns.'
-        error = error+'If not, use the outlet argument.'
+        error = 'Basin polygon attribute table must have an "outlet_x" and'
+        error = error+' "outlet_y" columns.'
+        error = error+' If not, use the outlet argument.'
         raise RuntimeError(error)
 
     params = pd.DataFrame([], index=[fid])
@@ -85,8 +109,7 @@ def basin_geographical_params(fid, basin, outlet=None):
     params['perim'] = basin.boundary.length.item()/1e3
 
     # Outlet to centroid
-    outlet = Point(basin.outlet_x.item(),
-                   basin.outlet_y.item())
+    outlet = Point(basin.outlet_x.item(), basin.outlet_y.item())
     out2cen = basin.centroid.distance(outlet)
     params['out2centroidlen'] = out2cen.item()/1e3
 
