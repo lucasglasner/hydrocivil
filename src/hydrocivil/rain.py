@@ -126,21 +126,21 @@ class RainStorm(object):
     (Benitez and Verni 1985) and (Varas 1985). 
 
     Examples:
-        #### Distribute a 24 hour 100 mm rainstorm in a 12 hour gaussian pulse
+        + Distribute a 24 hour 100 mm rainstorm in a 12 hour gaussian pulse
         -> storm = RainStorm('norm')
         -> storm = storm.compute(timestep=0.5, duration=12, rainfall=100)
         -> storm.pr.plot()
 
-        #### Create a 24 hour storm following the SCS type I hyetograph with 
-        #### pulses every 10 minutes and a total precipitation of 75 mm.
-        #### Then compute infiltration using SCS method and a basin CN of 75
+        + Create a 24 hour storm following the SCS type I hyetograph with 
+        + pulses every 10 minutes and a total precipitation of 75 mm.
+        + Then compute infiltration using SCS method and a basin CN of 75
         -> storm = RainStorm('SCS_I24')
         -> storm = storm.compute(timestep=10/60, duration=24, rainfall=75)
         -> storm = storm.infiltrate(method='SCS', cn=75)
         -> storm.pr.plot()
         -> storm.losses.plot()
 
-        #### Create a narrow and wide gaussian pulse of 100 mm in 12 hours
+        + Create a narrow and wide gaussian pulse of 100 mm in 12 hours
         -> narrow = RainStorm('norm', loc=0.5, scale=0.05)
         -> wide   = RainStorm('norm', loc=0.5, scale=0.15)
         -> narrow = storm.compute(timestep=0.5, duration=12, rainfall=100)

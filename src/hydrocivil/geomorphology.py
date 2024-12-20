@@ -212,9 +212,7 @@ def basin_terrain_params(fid, dem):
 # -------------------- Concentration time for rural basins ------------------- #
 
 
-def tc_SCS(mriverlen,
-           meanslope,
-           curvenumber):
+def tc_SCS(mriverlen, meanslope, curvenumber, **kwargs):
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -227,6 +225,7 @@ def tc_SCS(mriverlen,
         mriverlen (float): Main river length in (km)
         meanslope (float): Basin mean slope in m/m
         curvenumber (float): Basin curve number (dimensionless)
+        **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
@@ -240,9 +239,7 @@ def tc_SCS(mriverlen,
     return Tc
 
 
-def tc_kirpich(mriverlen,
-               hmax,
-               hmin):
+def tc_kirpich(mriverlen, hmax, hmin, **kwargs):
     """
     Kirpich equation method.
     Valid for small and rural basins ¿?.
@@ -254,6 +251,7 @@ def tc_kirpich(mriverlen,
         mriverlen (float): Main river length in (km)
         hmax (float): Basin maximum height (m)
         hmin (float): Basin minimum height (m)
+        **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
@@ -263,10 +261,7 @@ def tc_kirpich(mriverlen,
     return Tc
 
 
-def tc_giandotti(mriverlen,
-                 hmean,
-                 hmin,
-                 area):
+def tc_giandotti(mriverlen, hmean, hmin, area, **kwargs):
     """
     Giandotti equation method.
     Valid for small basins (< 20km2) with high slope (>10%) ¿?. 
@@ -279,6 +274,7 @@ def tc_giandotti(mriverlen,
         hmean (float): Basin mean height (meters)
         hmin (float): Basin minimum height (meters)
         area (float): Basin area (km2)
+        **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
@@ -289,9 +285,7 @@ def tc_giandotti(mriverlen,
     return Tc
 
 
-def tc_california(mriverlen,
-                  hmax,
-                  hmin):
+def tc_california(mriverlen, hmax, hmin, **kwargs):
     """
     California Culverts Practice (1942) equation.
     Valid for mountain basins ¿?.
@@ -303,6 +297,7 @@ def tc_california(mriverlen,
         mriverlen (float): Main river length in (km)
         hmax (float): Basin maximum height (m)
         hmin (float): Basin minimum height (m)
+        **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
@@ -313,8 +308,7 @@ def tc_california(mriverlen,
     return Tc
 
 
-def tc_spain(mriverlen,
-             meanslope):
+def tc_spain(mriverlen, meanslope, **kwargs):
     """
     Equation of Spanish/Spain regulation.
 
@@ -324,6 +318,7 @@ def tc_spain(mriverlen,
     Args:
         mriverlen (float): Main river length in (km)
         meanslope (float): Basin mean slope in m/m
+        **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
@@ -341,6 +336,7 @@ def concentration_time(method, **kwargs):
         method (str): Concentration time formula:
             Options:
                 California, Giandotti, Kirpich, SCS, Spain, 
+        **kwargs are given to the respective concentration time formula
 
     Raises:
         ValueError: If user asks for an unkown method
@@ -359,4 +355,4 @@ def concentration_time(method, **kwargs):
     elif method == 'Spain':
         return tc_spain(**kwargs)
     else:
-        raise ValueError(f'"{method}": Unknown method!')
+        raise ValueError(f'"{method}": Unknown tc method!')

@@ -18,14 +18,13 @@ import xarray as xr
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
-from .unithydrographs import SynthUnitHydro as SUH
+from .misc import raster_distribution
+from .unithydrographs import LumpedUnitHydro as SUH
 from .geomorphology import get_main_river, basin_outlet
 from .geomorphology import basin_geographical_params, basin_terrain_params
-from .misc import raster_distribution
-from .global_vars import ABZONE_POLYGON
-from .abstractions import (cn_correction, SCS_EffectiveRainfall,
-                           SCS_EquivalentCurveNumber)
-
+from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
+from .abstractions import cn_correction
+from .abstractions import SCS_EffectiveRainfall, SCS_EquivalentCurveNumber
 # ---------------------------------------------------------------------------- #
 
 
@@ -449,7 +448,7 @@ class RiverBasin(object):
 
         return self
 
-    def SynthUnitHydro(self, method, **kwargs):
+    def SynthUnitHydro(self, method, ChileParams=False, **kwargs):
         """
         Synthetic Unit Hygrograph class accessor
 
@@ -460,16 +459,34 @@ class RiverBasin(object):
         Returns:
             self: updated class
         """
-        if method == 'Arteaga&Benitez':
+        if (method == 'Linsley') and ChileParams:
+            poly = CHILE_UH_LINSLEYPOLYGONS
             centroid = self.basin.centroid.to_crs('epsg:4326').loc[0]
-            mask = centroid.within(ABZONE_POLYGON.geometry)
+            mask = centroid.within(poly.geometry)
             if mask.sum() == 0:
-                raise RuntimeError(
-                    f'No valid {method} zone for {self.fid} basin')
+                text = f'Basin {self.fid} is outside the geographical limits'
+                text = text+f' allowed by the Chilean {method} method.'
+                raise RuntimeError(text)
             else:
-                self.params.loc['zone_AB'] = ABZONE_POLYGON[mask].zone.item()
-        uh = SUH(self.params[self.fid], method)
-        uh = uh.compute(**kwargs)
+                DGAChile_LinsleyZone = poly[mask].zone.item()
+                self.params.loc['DGAChile_LinsleyZone'] = DGAChile_LinsleyZone
+                uh = SUH(method, self.params[self.fid])
+                uh = uh.compute(DGAChileParams=True,
+                                DGAChileZone=DGAChile_LinsleyZone, **kwargs)
+        elif (method == 'Gray') and ChileParams:
+            poly = CHILE_UH_GRAYPOLYGONS
+            centroid = self.basin.centroid.to_crs('epsg:4326').loc[0]
+            mask = centroid.within(poly.geometry)
+            if mask.sum() == 0:
+                text = f'Basin {self.fid} is outside the geographical limits'
+                text = text+f' allowed by the Chilean {method} method.'
+                raise RuntimeError(text)
+            else:
+                uh = SUH(method, self.params[self.fid])
+                uh = uh.compute(DGAChileParams=True, **kwargs)
+        else:
+            uh = SUH(method, self.params[self.fid])
+            uh = uh.compute(**kwargs)
         self.UnitHydro = uh
         return self
 
