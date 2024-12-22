@@ -24,6 +24,123 @@ from .global_vars import CHILE_UH_LINSLEYPARAMS, CHILE_UH_GRAYPARAMS
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
 
+def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
+              interp_kwargs={'kind': 'quadratic'}):
+    """
+    Clark (1945) instantaneous unit hydrograph model. 
+
+    The instantaneous unit hydrograph refers to the catchment response of a
+    homogeneous 1 mm storm distributed and applied over an instantaneous
+    duration. In this regard the Clark's model indicates that the basin
+    response can be computed from a time-area relationship, the concentration
+    time and  a storage coefficient R. The model assumes that the basin behaves
+    like a linear reservoir following the equation:
+
+        dS/dt = I(t) - Q(t)
+        S(t) = R * Q(t)
+
+    If a 1mm pulse is homogeneously and instantaneously distributed on the
+    basin area the input runoff of Clark linear model will be exactly equal
+    to the time-area curve. So, solving the previous equation with a finite
+    difference approach leads to: 
+
+        c = (dt / (R + 0.5 * dt))
+        Q(t)= c * I(t) + (1 - c) * Q(t-1) 
+
+    which can be solved iteratively from a given time-area curve I(t), 
+    a timestep dt and the R storage parameter.
+
+    The time-area curve of the basin is a complex function of the basin 
+    geomorphology and hydraulic properties. And should go between 0 in the 
+    basin outlet to the concentration time on the farthest hydrological point. 
+
+    The R parameter is a function of the basin properties, however is 
+    commonly estimated through empirical formulas. The most common is to 
+    compute it from the concentration time with something like:
+
+        X = R / (tc + R)
+
+    where X is a coefficient determined through regional analyses. From HEC-HMS
+    docs: "Smaller values of X result in short, steeply rising unit hydrographs
+    and may be representative of urban watersheds. Larger values of X result
+    in broad, slowly rising unit hydrographs and may be representative of flat,
+    swampy watersheds."
+
+    References:
+        Clark, C. O. (1945). Storage and the unit hydrograph. Transactions of
+        the American Society of Civil Engineers, 110(1), 1419-1446.
+
+    Args:
+        area (float): Basin area (km2)
+        tc (float): Basin concentration time (hours)
+        R (float): Linear reservoir storage coefficient (hours). Usually an 
+            empirical function of the concentration time.
+        X (float): Fractional coefficient used to derive R from tc with the
+            formula X = R / (tc + R).
+        tstep (float): Unit hydrograph discretization time step in hours.
+        timearea (pandas.Series, optional): A user defined dimensionless
+            time-area curve with dimensionless time (t/tc) in the index and 
+            dimensionless area in values (A/A_basin). If None will use the 
+            HEC-HMS default time-area curve. Defaults to None.
+        tolerance (float, optional): Tolerance for solving the linear
+            reservoir ODE. Defaults to 1e-5.
+        interp_kwargs (dict, optional): args passed to
+            scipy.interpolation.interp1d function. 
+            Defaults to {'kind':'quadratic'}.
+
+    Returns:
+        _type_: _description_
+    """
+    text = "SUH_Clark() missing 1 required positional argument: 'R' or 'X'"
+    if type(R) == type(None):
+        if type(X) != type(None):
+            R = X * tc / (1 - X)
+        else:
+            raise TypeError(text)
+
+    c = 2*tstep/(2*R+tstep)
+    if type(timearea) == type(None):
+        t_shape = np.arange(0, 1+0.1, 0.1)
+        At_shape = np.full(t_shape.shape, np.nan)
+        At_shape[t_shape <= 1/2] = 1.414*(t_shape[t_shape <= 1/2])**1.5
+        At_shape[t_shape > 1/2] = 1-1.414*(1-t_shape[t_shape > 1/2])**1.5
+        timearea = pd.Series(At_shape, index=t_shape)
+    timearea.index = timearea.index*tc
+
+    # Interpolate to new time resolution
+    ntime = np.arange(timearea.index[0], timearea.index[-1]+tstep, tstep)
+    f = interp1d(timearea.index, timearea.values, fill_value='extrapolate',
+                 **interp_kwargs)
+    timearea = pd.Series(f(ntime), index=ntime)
+    timearea = timearea.diff().fillna(0)
+    q_in = timearea*1e3/3600
+
+    # Main loop
+    uh, time = [0], [0]
+    i = 0
+    while True:
+        i = i+1
+        if i < len(q_in):
+            qout = q_in.iloc[i]*c+uh[i-1]*(1-c)
+        else:
+            qout = uh[i-1]*(1-c)
+        uh.append(qout)
+        time.append(tstep*i)
+        if uh[i] < tolerance:
+            break
+    uh = pd.Series(uh, index=time)
+    uh = (uh.shift(1)+uh)/2
+    uh = uh.where(uh > 0).fillna(0)
+    uh = uh*area
+
+    # Ensure that the unit hydrograph acummulates a volume of 1mm
+    volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
+    uh = uh/volume
+    params = (uh.max(), uh.idxmax(), tc, R)
+    params = pd.Series(params, index=['qpeak', 'tpeak', 'tc', 'R'])
+    uh.name, params.name = 'Clark_m3 s-1 mm-1', 'Params_Clark'
+    return uh, params
+
 
 def SUH_SCS(area, tc, tstep, m=3.7, interp_kwargs={'kind': 'quadratic'}):
     """
@@ -70,10 +187,11 @@ def SUH_SCS(area, tc, tstep, m=3.7, interp_kwargs={'kind': 'quadratic'}):
         area (float): Basin area (km2)
         tc (float): Basin concentration time (hours)
         tstep (float): Unit hydrograph discretization time step in hours.
-        kind (str): Specifies the kind of interpolation as a string or as
-            an integer specifying the order of the spline interpolator to use.
-            Defaults to 'quadratic'.
-        **kwargs are passed to scipy.interpolation.interp1d function.
+        m (float): m parameter of the gamma equation. A fixed m means a fixed
+            peak factor (prf).
+        interp_kwargs (dict, optional): args passed to
+            scipy.interpolation.interp1d function. 
+            Defaults to {'kind':'quadratic'}.
 
     Returns:
         uh, (qp, tp, tb, tstep) (tuple):
@@ -193,8 +311,12 @@ def SUH_Gray(area, mriverlen, meanslope, a, b,
         area (float): Basin area (km2)
         mriverlen (float): Main channel length (km)
         meanslope (float): Basin mean slope (m/m)
+        a, b (float): Gray's model parameters.
         tstep (float): Unit hydrograph target unitary time (tu) in hours.
-        interp_kwargs (dict): args to scipy.interpolation.interp1d function.
+        interp_kwargs (dict, optional): args passed to
+            scipy.interpolation.interp1d function. 
+            Defaults to {'kind':'quadratic'}.
+
     """
     alpha, beta = 2.676, 0.0139
     y = alpha/(1-beta*a*((mriverlen / np.sqrt(meanslope))**b))
@@ -266,7 +388,11 @@ def SUH_Linsley(area, mriverlen, out2centroidlen, meanslope, C_t, n_t,
         mriverlen (float): Main channel length (km)
         out2centroidlen (float): Distance from basin outlet to centroid (km)
         meanslope (float): Basin mean slope (m/m)
-        interp_kwargs (dict): args to scipy.interpolation.interp1d function.
+        C_t, n_t, C_p, n_p, C_b, n_b (float): Linsley model parameters.
+        interp_kwargs (dict, optional): args passed to
+            scipy.interpolation.interp1d function. 
+            Defaults to {'kind':'quadratic'}.
+
 
     Returns:
         uh, (qpR, tpR, tbR, tuR) (tuple):
@@ -309,23 +435,23 @@ def SUH_Linsley(area, mriverlen, out2centroidlen, meanslope, C_t, n_t,
     uh.name, params.name = 'Linsley_m3 s-1 mm-1', 'Params_Linsley'
     return uh*area/1e3, params
 
-# -------------------------------- MAIN CLASS -------------------------------- #
+# ------------------------------- MAIN CLASSES ------------------------------- #
 
 
 class LumpedUnitHydro(object):
     """
     Synthetic Unit Hydrograph class used for building unit hydrograph of
     river basins as a function of geomorphometric and land use properties.
-    The class can be used to build the SCS unit hydrograph of any watershed
-    (using SCS time of concentration) or the Chilean unit hydrographs of
-    Arteaga&Benitez (Linsley) and Grey both present in the national flood
+    The class can be used to build the SCS, Linsley or Gray's unit hydrograph
+    of any watershed or the pre-calibrated Chilean unit hydrographs of
+    DGA/Arteaga&Benitez (Linsley) and Grey's both present in the national flood
     manual.
 
     Examples:
         + Compute SCS UH for a storm duration of 1 hour.
         + Show params and the related S-Curve
-        -> suh = SynthUnitHydro(geoparams, method='SCS', timestep=1)
-        -> suh.compute()
+        -> suh = LumpedUnitHydro(method='SCS', geoparams=geoparams)
+        -> suh.compute(timestep=1)
         -> suh.UnitHydroParams
         -> suh.SHydrograph
 
@@ -368,6 +494,30 @@ class LumpedUnitHydro(object):
         text = text+')'
         return text
 
+    def _Clark(self, timestep, tc_formula='SCS', **kwargs):
+        """
+        Compute the unit hydrograph following Clark's model.
+
+        Args:
+            timestep (float): timestep in hours. Note that this is the same
+                as the unit hydrograph excess rain duration.
+            tc_formula (str, optional): Empirical formula used for computing
+                the time of concentration. Options: 'California', 'Giandotti',
+                'Kirpich', 'SCS', 'Spain'. Defaults to 'SCS'.
+
+        Returns:
+            (tuple): tuple with the unit hydrograph time series and the
+                respective table of parameters
+        """
+        area = self.geoparams['area']
+        if 'tc' in kwargs.keys():
+            uh, uh_params = SUH_Clark(tstep=timestep, area=area, **kwargs)
+        else:
+            tc = concentration_time(method=tc_formula, **self.geoparams)/60
+            uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc,
+                                      **kwargs)
+        return uh, uh_params
+
     def _SCS(self, timestep, tc_formula='SCS', **kwargs):
         """
         Compute the unit hydrograph following the SCS model.
@@ -384,8 +534,12 @@ class LumpedUnitHydro(object):
                 respective table of parameters
         """
         area = self.geoparams['area']
-        tc = concentration_time(method=tc_formula, **self.geoparams)/60
-        uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc, **kwargs)
+        if 'tc' in kwargs.keys():
+            uh, uh_params = SUH_SCS(tstep=timestep, area=area, **kwargs)
+        else:
+            tc = concentration_time(method=tc_formula, **self.geoparams)/60
+            uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc,
+                                    **kwargs)
         return uh, uh_params
 
     def _Linsley(self, DGAChileParams=False, DGAChileZone=None, **kwargs):
@@ -476,9 +630,8 @@ class LumpedUnitHydro(object):
         volume = volume/self.geoparams['area']/1e3  # mm
         uh_new = uh_new/volume
 
-        params_new = pd.Series([uh_new.max(), uh_new.idxmax(),
-                                uh_new.index[-1], duration],
-                               index=['qpeak', 'tpeak', 'tbase', 'tstep'])
+        params_new = pd.Series([uh_new.max(), uh_new.idxmax(), duration],
+                               index=['qpeak', 'tpeak', 'tstep'])
 
         # Update
         self.timestep = duration
@@ -513,15 +666,16 @@ class LumpedUnitHydro(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, timestep, tolerance=1e-4, **kwargs):
+    def compute(self, timestep, upper_tail_threshold=1e-4, **kwargs):
         """
         Trigger calculation of desired unit hydrograph
 
         Args:
             timestep (float): Desired time step in hours.
-            tolerance (float, optional): Tolerance for the unit hydrograph
-                volume accumulation. High tolerance could imply a unit 
-                hydrograph that isnt strighly unitary. Defaults to 1e-4. 
+            upper_tail_threshold (float, optional): Tolerance for the unit
+                hydrograph upper tail volume accumulation. High tolerance could
+                imply a unit  hydrograph that isnt strighly unitary.
+                Defaults to 1e-4. 
 
         Raises:
             ValueError: If give the class a wrong UH kind.
@@ -532,7 +686,9 @@ class LumpedUnitHydro(object):
         self.kwargs = {**self.kwargs, **kwargs}
         self.timestep = timestep
         method = self.method
-        if method == 'SCS':
+        if method == 'Clark':
+            uh, uh_params = self._Clark(timestep=timestep, **kwargs)
+        elif method == 'SCS':
             uh, uh_params = self._SCS(timestep=timestep, **kwargs)
         elif method == 'Linsley':
             uh, uh_params = self._Linsley(**kwargs)
@@ -541,7 +697,7 @@ class LumpedUnitHydro(object):
         else:
             raise ValueError(f'method="{method}" not valid!')
 
-        uh = uh[(uh.cumsum()/uh.sum()) < 1-tolerance]
+        uh = uh[(uh.cumsum()/uh.sum()) < 1-upper_tail_threshold]
         self.UnitHydro, self.params = uh, uh_params
         self.SUnitHydro = self.get_SHydrograph()
         self.update_duration(self.timestep)
