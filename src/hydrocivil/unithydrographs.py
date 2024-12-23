@@ -33,7 +33,7 @@ def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
     homogeneous 1 mm storm distributed and applied over an instantaneous
     duration. In this regard the Clark's model indicates that the basin
     response can be computed from a time-area relationship, the concentration
-    time and  a storage coefficient R. The model assumes that the basin behaves
+    time and a storage coefficient R. The model assumes that the basin behaves
     like a linear reservoir following the equation:
 
         dS/dt = I(t) - Q(t)
@@ -51,7 +51,7 @@ def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
     a timestep dt and the R storage parameter.
 
     The time-area curve of the basin is a complex function of the basin 
-    geomorphology and hydraulic properties. And should go between 0 in the 
+    geomorphology and hydraulic properties, and should go between 0 in the 
     basin outlet to the concentration time on the farthest hydrological point. 
 
     The R parameter is a function of the basin properties, however is 
@@ -59,6 +59,7 @@ def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
     compute it from the concentration time with something like:
 
         X = R / (tc + R)
+        R = X * t_c / (1 - X)
 
     where X is a coefficient determined through regional analyses. From HEC-HMS
     docs: "Smaller values of X result in short, steeply rising unit hydrographs
@@ -142,7 +143,8 @@ def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
     return uh, params
 
 
-def SUH_SCS(area, tc, tstep, m=3.7, interp_kwargs={'kind': 'quadratic'}):
+def SUH_SCS(area, tc, tstep, prf=484, threshold=1e-10,
+            interp_kwargs={'kind': 'quadratic'}):
     """
     U.S.A Soil Conservation Service (SCS) synthetic unit hydrograph.
 
@@ -187,8 +189,9 @@ def SUH_SCS(area, tc, tstep, m=3.7, interp_kwargs={'kind': 'quadratic'}):
         area (float): Basin area (km2)
         tc (float): Basin concentration time (hours)
         tstep (float): Unit hydrograph discretization time step in hours.
-        m (float): m parameter of the gamma equation. A fixed m means a fixed
-            peak factor (prf).
+        prf (float): peak rate factor (imperial units). Defaults to 484. 
+        threshold (float): Iteration error for the m parameter calculation 
+            based on the given peak rate factor (prf). Defaults to 1e-10. 
         interp_kwargs (dict, optional): args passed to
             scipy.interpolation.interp1d function. 
             Defaults to {'kind':'quadratic'}.
@@ -200,22 +203,48 @@ def SUH_SCS(area, tc, tstep, m=3.7, interp_kwargs={'kind': 'quadratic'}):
             time step (hours)))
 
     """
+    def _iterfunc(target_prf, m):
+        """
+        Args:
+            target_prf (float): target peak rate factor
+            m (float): input m parameter
+
+        Returns:
+            (float): updated m parameter
+        """
+        C = 645.33
+        a = target_prf * np.exp(m)
+        b = gamma(m+1) / C
+        return (a*b)**(1/(m+1))
+
+    def _solve4m(target_prf, threshold):
+        """
+        This function computes m for a given prf.
+
+        Args:
+            target_prf (float): peak rate factor (imperial units)
+            threshold (float): Iteration threshold.
+        """
+        m0 = 0
+        while True:
+            m = _iterfunc(target_prf, m0)
+            if abs(m-m0) < threshold:
+                return m
+            else:
+                m0 = m
+
     # Unit hydrograph shape
+    m = _solve4m(prf, threshold=threshold)
     t_shape = [np.arange(0, 2+0.1, 0.1),
                np.arange(2.2, 4+0.2, 0.2),
-               np.arange(4.5, 8+0.5, 0.5)]
+               np.arange(4.5, 20+0.5, 0.5)]
     t_shape = np.hstack(t_shape)
-
     q_shape = np.exp(m)*t_shape**m*np.exp(-m*t_shape)
-
-    # Peak rate factor
-    prf = 645.33*m**(m+1)/np.exp(m)/gamma(m+1)  # Imperial Units
-    prf = prf*(0.0283/2.58/25.4)                # International Units
 
     # Unit hydrograph paremeters
     tp = tc*0.6+tstep/2
     tb = 2.67*tp
-    qp = prf*area/tp
+    qp = prf*area/tp*(0.0283/2.58/25.4)  # International units
     uh = pd.Series(qp*q_shape, index=t_shape*tp)
 
     # Interpolate to new time resolution
