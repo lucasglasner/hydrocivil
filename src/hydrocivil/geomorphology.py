@@ -9,15 +9,22 @@
 
 import pandas as pd
 import numpy as np
+import geopandas as gpd
+import xarray as xr
 import warnings
-from .abstractions import SCS_MaximumRetention
+
+from typing import Union, Any, Tuple
+from numpy.typing import ArrayLike
 from shapely.geometry import Point
 import networkx as nx
+
+from .abstractions import SCS_MaximumRetention
 
 # ------------------------ Geomorphological properties ----------------------- #
 
 
-def get_main_river(river_network):
+def get_main_river(river_network: Union[gpd.GeoSeries, gpd.GeoDataFrame]
+                   ) -> Union[gpd.GeoSeries, gpd.GeoDataFrame]:
     """
     For a given river network (shapefile with river segments) this functions
     creates a graph with the river network and computes the main river with the
@@ -47,7 +54,9 @@ def get_main_river(river_network):
     return main_river
 
 
-def basin_outlet(basin, dem, n=3):
+def basin_outlet(basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+                 dem: xr.DataArray, n: int = 3
+                 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     This function computes the basin outlet point defined as the
     point of minimum elevation along the basin boundary.
@@ -71,7 +80,9 @@ def basin_outlet(basin, dem, n=3):
     return (outlet_y, outlet_x)
 
 
-def basin_geographical_params(fid, basin, outlet=None):
+def basin_geographical_params(fid: Union[str, int, float],
+                              basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+                              outlet: ArrayLike = None) -> pd.DataFrame:
     """
     Given a basin id and a basin polygon as a geopandas object 
     this function computes the "geographical" or vector properties of
@@ -79,9 +90,10 @@ def basin_geographical_params(fid, basin, outlet=None):
     centroid length.)
 
     Args:
-        fid (_type_): basin identifier
-        basin (geopandas.GeoDataFrame): basin polygon
-        outlet (array, optional): shape (2,) array with basin x,y outlet point
+        fid (str|int|float): basin identifier
+        basin (geopandas.GeoSeries|geopandas.GeoDataFrame): basin polygon
+        outlet (ArrayLike, optional): shape (2,) array with basin x,y outlet
+            point. Defaults to None
     Raises:
         RuntimeError: If outlet == None and the basin doesnt have the drainage
             point in the attribute table. (outlet_x and outlet_y columns)
@@ -116,7 +128,8 @@ def basin_geographical_params(fid, basin, outlet=None):
     return params
 
 
-def terrain_exposure(aspect, fid=0):
+def terrain_exposure(aspect: xr.DataArray, fid: Union[str, int, float] = 0
+                     ) -> pd.DataFrame:
     """
     From an aspect raster compute the percentage of the raster that
     belong to each of the 8 typical geographical directions.
@@ -164,7 +177,8 @@ def terrain_exposure(aspect, fid=0):
     return dir_perc
 
 
-def basin_terrain_params(fid, dem):
+def basin_terrain_params(fid: Union[str, int, float], dem: xr.DataArray
+                         ) -> pd.DataFrame:
     """
     From an identifier (fid) and a digital elevation model (DEM) loaded
     as an xarray object, this function computes the following properties:
@@ -212,7 +226,8 @@ def basin_terrain_params(fid, dem):
 # -------------------- Concentration time for rural basins ------------------- #
 
 
-def tc_SCS(mriverlen, meanslope, curvenumber, **kwargs):
+def tc_SCS(mriverlen: Union[int, float], meanslope: Union[int, float],
+           curvenumber: Union[int, float], **kwargs: Any) -> float:
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -239,7 +254,8 @@ def tc_SCS(mriverlen, meanslope, curvenumber, **kwargs):
     return Tc
 
 
-def tc_kirpich(mriverlen, hmax, hmin, **kwargs):
+def tc_kirpich(mriverlen: Union[int, float], hmax: Union[int, float],
+               hmin: Union[int, float], **kwargs: Any) -> float:
     """
     Kirpich equation method.
     Valid for small and rural basins ¿?.
@@ -261,7 +277,9 @@ def tc_kirpich(mriverlen, hmax, hmin, **kwargs):
     return Tc
 
 
-def tc_giandotti(mriverlen, hmean, hmin, area, **kwargs):
+def tc_giandotti(mriverlen: Union[int, float], hmean: Union[int, float],
+                 hmin: Union[int, float], area: Union[int, float],
+                 **kwargs: Any) -> float:
     """
     Giandotti equation method.
     Valid for small basins (< 20km2) with high slope (>10%) ¿?. 
@@ -285,7 +303,8 @@ def tc_giandotti(mriverlen, hmean, hmin, area, **kwargs):
     return Tc
 
 
-def tc_california(mriverlen, hmax, hmin, **kwargs):
+def tc_california(mriverlen: Union[int, float], hmax: Union[int, float],
+                  hmin: Union[int, float], **kwargs: Any) -> float:
     """
     California Culverts Practice (1942) equation.
     Valid for mountain basins ¿?.
@@ -308,7 +327,8 @@ def tc_california(mriverlen, hmax, hmin, **kwargs):
     return Tc
 
 
-def tc_spain(mriverlen, meanslope, **kwargs):
+def tc_spain(mriverlen: Union[int, float], meanslope: Union[int, float],
+             **kwargs: Any) -> float:
     """
     Equation of Spanish/Spain regulation.
 
@@ -327,7 +347,7 @@ def tc_spain(mriverlen, meanslope, **kwargs):
     return Tc
 
 
-def concentration_time(method, **kwargs):
+def concentration_time(method: str, **kwargs: Any) -> float:
     """
     General function for computing the concentration time with different
     formulas.

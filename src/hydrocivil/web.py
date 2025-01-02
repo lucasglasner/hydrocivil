@@ -11,7 +11,8 @@ import os
 import requests
 
 
-def OpenTopo(DATASET, ROI, OUTPUTPATH, API_KEY='YOURKEY'):
+def OpenTopo(DATASET: str, ROI: tuple, OUTPUTPATH: str,
+             API_KEY: str = 'YOURKEY') -> requests.models.Response:
     """
     This function makes a request to the OpenTopo server and downloads
     DEM data for a small region. 

@@ -14,6 +14,8 @@ import warnings
 import copy as pycopy
 import xarray as xr
 
+from typing import Union, Any, Type
+from numpy.typing import ArrayLike
 from .abstractions import SCS_Abstractions
 from .global_vars import SHYETO_DATA
 from .misc import obj_to_xarray
@@ -23,7 +25,8 @@ import scipy.stats as st
 # ----------------------- duration coefficient routines ---------------------- #
 
 
-def grunsky_coef(storm_duration, ref_duration=24):
+def grunsky_coef(storm_duration: Union[int, float],
+                 ref_duration: Union[int, float] = 24) -> float:
     """
     This function computes the duration coefficient
     given by the Grunsky Formula.
@@ -43,7 +46,8 @@ def grunsky_coef(storm_duration, ref_duration=24):
     return CD
 
 
-def bell_coef(storm_duration, ref_duration=24):
+def bell_coef(storm_duration: Union[int, float],
+              ref_duration: Union[int, float] = 24) -> float:
     """
     This function computes the duration coefficient
     given by the Bell Formula.
@@ -64,10 +68,10 @@ def bell_coef(storm_duration, ref_duration=24):
     return CD
 
 
-def duration_coef(storm_duration,
-                  ref_duration=24,
-                  bell_threshold=1,
-                  duration_threshold=10/60):
+def duration_coef(storm_duration: Union[int, float],
+                  ref_duration: Union[int, float] = 24,
+                  bell_threshold: Union[int, float] = 1,
+                  duration_threshold: Union[int, float] = 10/60) -> float:
     """
     The duration coefficient is a parameter used to transform a known duration
     precipitation to a new duration rain. For example it can be used to
@@ -147,7 +151,9 @@ class RainStorm(object):
         -> wide   = storm.compute(timestep=0.5, duration=12, rainfall=100)
     """
 
-    def synth_rain(self, loc, scale, flip=False, n=1000, **kwargs):
+    def synth_rain(self,
+                   loc: float, scale: float, flip: bool = False, n: int = 1000,
+                   **kwargs: Any) -> pd.Series:
         """
         Synthetic hyetograph generator function. If the storm type given
         in the class constructor is part of any of scipy distributions 
@@ -184,7 +190,8 @@ class RainStorm(object):
             shyeto = SHYETO_DATA[kind]
         return shyeto
 
-    def __init__(self, kind='norm', loc=0.5, scale=0.1, **kwargs):
+    def __init__(self, kind: str = 'norm', loc: float = 0.5, scale: float = 0.1,
+                 **kwargs: Any) -> None:
         """
         Synthetic RainStorm builder
 
@@ -235,14 +242,16 @@ class RainStorm(object):
         text = text+f"infiltration='{self.infiltration}')"
         return text
 
-    def copy(self):
+    def copy(self) -> Type['RainStorm']:
         """
         Create a deep copy of the class itself
         """
         return pycopy.deepcopy(self)
 
-    def compute(self, timestep, duration, rainfall, n=1,
-                interp_kwargs={'method': 'linear'}):
+    def compute(self, timestep: Union[int, float], duration: Union[int, float],
+                rainfall: ArrayLike, n: int = 1,
+                interp_kwargs: dict = {'method': 'linear'}
+                ) -> Type['RainStorm']:
         """
         Trigger computation of design storm for a given timestep, storm 
         duration, and total precipitation.
@@ -287,7 +296,8 @@ class RainStorm(object):
         self.pr = storm
         return self
 
-    def infiltrate(self, method='SCS', **kwargs):
+    def infiltrate(self, method: str = 'SCS', **kwargs: Any
+                   ) -> Type['RainStorm']:
         """
         Compute losses due to infiltration with different methods for the
         stored storm Hyetograph

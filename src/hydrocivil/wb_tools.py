@@ -11,11 +11,12 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from typing import Any
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon
 
 
-def wbRaster2numpy(obj):
+def wbRaster2numpy(obj: Any) -> np.ndarray:
     """
     This function grabs a whitebox_workflows Raster object and return
     the image data as a numpy array
@@ -45,7 +46,8 @@ def wbRaster2numpy(obj):
     return arr
 
 
-def wbRaster2xarray(obj, flip_y=False, flip_x=False):
+def wbRaster2xarray(obj: Any, flip_y: bool = False, flip_x: bool = False
+                    ) -> xr.DataArray:
     """
     This function grabs a whitebox_workflows Raster object and return
     the image data as an xarray DataArray
@@ -79,7 +81,7 @@ def wbRaster2xarray(obj, flip_y=False, flip_x=False):
     return da
 
 
-def wbAttributes2DataFrame(obj):
+def wbAttributes2DataFrame(obj: Any) -> pd.DataFrame:
     """
     This function grabs a whitebox_workflows vector object and recuperates
     the attribute table as a pandas dataframe.
@@ -106,7 +108,7 @@ def wbAttributes2DataFrame(obj):
     return df
 
 
-def wbPoint2geopandas(obj, crs=None):
+def wbPoint2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows Point layer to a geopandas
     GeoDataFrame.
@@ -132,7 +134,7 @@ def wbPoint2geopandas(obj, crs=None):
     return gdf
 
 
-def wbLine2geopandas(obj, crs=None):
+def wbLine2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows Line layer to a geopandas
     GeoDataFrame.
@@ -180,7 +182,7 @@ def wbLine2geopandas(obj, crs=None):
     return gdf
 
 
-def wbPolygon2geopandas(obj, crs=None):
+def wbPolygon2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows Polygon layer to a geopandas
     GeoDataFrame.
@@ -230,7 +232,7 @@ def wbPolygon2geopandas(obj, crs=None):
     return gdf
 
 
-def wbVector2geopandas(obj, crs=None):
+def wbVector2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows vector layer to a geopandas
     GeoDataFrame.

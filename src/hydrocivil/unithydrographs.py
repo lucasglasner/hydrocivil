@@ -9,12 +9,17 @@
 
 import os
 import warnings
+import matplotlib.axes
+import matplotlib.figure
 import numpy as np
 import pandas as pd
 import scipy.signal as sg
 import geopandas as gpd
+import matplotlib
 
 from math import gamma
+from typing import Union, Any, Tuple, Type
+from numpy.typing import ArrayLike
 from scipy.interpolate import interp1d
 from scipy.special import gamma
 
@@ -24,8 +29,11 @@ from .global_vars import CHILE_UH_LINSLEYPARAMS, CHILE_UH_GRAYPARAMS
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
 
-def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
-              interp_kwargs={'kind': 'quadratic'}):
+def SUH_Clark(area: float, tc: float, tstep: float,
+              R: float = None, X: float = None,
+              timearea: pd.Series = None, tolerance: float = 1e-5,
+              interp_kwargs: dict = {'kind': 'quadratic'}
+              ) -> Tuple[pd.Series, pd.Series]:
     """
     Clark (1945) instantaneous unit hydrograph model. 
 
@@ -143,8 +151,10 @@ def SUH_Clark(area, tc, tstep, R=None, X=None, timearea=None, tolerance=1e-5,
     return uh, params
 
 
-def SUH_SCS(area, tc, tstep, prf=484, threshold=1e-10,
-            interp_kwargs={'kind': 'quadratic'}):
+def SUH_SCS(area: float, tc: float, tstep: float, prf: float = 484,
+            threshold: float = 1e-10,
+            interp_kwargs: dict = {'kind': 'quadratic'}
+            ) -> Tuple[pd.Series, pd.Series]:
     """
     U.S.A Soil Conservation Service (SCS) synthetic unit hydrograph.
 
@@ -203,7 +213,7 @@ def SUH_SCS(area, tc, tstep, prf=484, threshold=1e-10,
             time step (hours)))
 
     """
-    def _iterfunc(target_prf, m):
+    def _iterfunc(target_prf: float, m: float) -> float:
         """
         Args:
             target_prf (float): target peak rate factor
@@ -217,7 +227,7 @@ def SUH_SCS(area, tc, tstep, prf=484, threshold=1e-10,
         b = gamma(m+1) / C
         return (a*b)**(1/(m+1))
 
-    def _solve4m(target_prf, threshold):
+    def _solve4m(target_prf: float, threshold: float) -> float:
         """
         This function computes m for a given prf.
 
@@ -265,7 +275,7 @@ def SUH_SCS(area, tc, tstep, prf=484, threshold=1e-10,
     return uh, params
 
 
-def tstep_correction(tstep, tp):
+def tstep_correction(tstep: float, tp: float) -> float:
     """
     This functions checks if the selected timestep can be used
     as the unit hydrograph time resolution (unitary time) for Snyder
@@ -293,8 +303,10 @@ def tstep_correction(tstep, tp):
         return tstep, tp
 
 
-def SUH_Gray(area, mriverlen, meanslope, a, b,
-             interp_kwargs={'kind': 'quadratic'}):
+def SUH_Gray(area: float, mriverlen: float, meanslope: float,
+             a: float, b: float,
+             interp_kwargs: dict = {'kind': 'quadratic'}
+             ) -> Tuple[pd.Series, pd.Series]:
     """
     Gray's' method assumes a SUH that follows the gamma function, which
     reflects the theoretical result of a basin made of an infinite series
@@ -378,8 +390,13 @@ def SUH_Gray(area, mriverlen, meanslope, a, b,
     return uh, params
 
 
-def SUH_Linsley(area, mriverlen, out2centroidlen, meanslope, C_t, n_t,
-                C_p, n_p, C_b, n_b, interp_kwargs={'kind': 'quadratic'}):
+def SUH_Linsley(area: float, mriverlen: float, out2centroidlen: float,
+                meanslope: float,
+                C_t: float, n_t: float,
+                C_p: float, n_p: float,
+                C_b: float, n_b: float,
+                interp_kwargs: dict = {'kind': 'quadratic'}
+                ) -> Tuple[pd.Series, pd.Series]:
     """
     Linsley unit hydrograph (UH) is a similar formulation of the well known
     Snyder UH. The difference is that Linsley's UH uses a different formula
@@ -492,7 +509,8 @@ class LumpedUnitHydrograph(object):
         -> suh.update_duration(30/60).convolve(rainfall2)
     """
 
-    def __init__(self, method, geoparams):
+    def __init__(self, method: str,
+                 geoparams: Union[dict, pd.Series, pd.DataFrame]) -> None:
         """
         Synthetic unit hydrograph (SUH) constructor.
 
@@ -523,7 +541,8 @@ class LumpedUnitHydrograph(object):
         text = text+')'
         return text
 
-    def _Clark(self, timestep, tc_formula='SCS', **kwargs):
+    def _Clark(self, timestep: float, tc_formula: str = 'SCS', **kwargs: Any
+               ) -> Tuple[pd.Series, pd.Series]:
         """
         Compute the unit hydrograph following Clark's model.
 
@@ -547,7 +566,8 @@ class LumpedUnitHydrograph(object):
                                       **kwargs)
         return uh, uh_params
 
-    def _SCS(self, timestep, tc_formula='SCS', **kwargs):
+    def _SCS(self, timestep: float, tc_formula: str = 'SCS', **kwargs: Any
+             ) -> Tuple[pd.Series, pd.Series]:
         """
         Compute the unit hydrograph following the SCS model.
 
@@ -571,7 +591,8 @@ class LumpedUnitHydrograph(object):
                                     **kwargs)
         return uh, uh_params
 
-    def _Linsley(self, DGAChileParams=False, DGAChileZone=None, **kwargs):
+    def _Linsley(self, DGAChileParams: bool = False, DGAChileZone: bool = None,
+                 **kwargs: Any) -> Tuple[pd.Series, pd.Series]:
         """
         Compute the unit hydrograph following the Linsley model.
         Args:
@@ -596,7 +617,8 @@ class LumpedUnitHydrograph(object):
             uh, uh_params = SUH_Linsley(**self.geoparams[geoparams], **kwargs)
         return uh, uh_params
 
-    def _Gray(self, DGAChileParams=False, **kwargs):
+    def _Gray(self, DGAChileParams: bool = False, **kwargs: Any
+              ) -> Tuple[pd.Series, pd.Series]:
         """
         Compute the unit hydrograph following the Gray model.
         Args:
@@ -616,7 +638,7 @@ class LumpedUnitHydrograph(object):
             uh, uh_params = SUH_Gray(**self.geoparams[geoparams], **kwargs)
         return uh, uh_params
 
-    def get_SHydrograph(self):
+    def get_SHydrograph(self) -> pd.Series:
         """
         This function computes the S-Curve or S-Hydrograph which is independent
         of the storm duration and can be used for computing the UH of a
@@ -630,7 +652,9 @@ class LumpedUnitHydrograph(object):
         S_uh = pd.concat(sums, axis=1).sum(axis=1)
         return S_uh
 
-    def update_duration(self, duration, interp_kwargs={'kind': 'quadratic'}):
+    def update_duration(self, duration: float,
+                        interp_kwargs: dict = {'kind': 'quadratic'}
+                        ) -> Type['LumpedUnitHydrograph']:
         """
         This function uses de S-Curve to update the unit hydrograph duration
         and the respective parameters.
@@ -671,7 +695,8 @@ class LumpedUnitHydrograph(object):
         self.SUnitHydro = SCurve_new
         return self
 
-    def convolve(self, rainfall, **kwargs):
+    def convolve(self, rainfall: Union[pd.Series, pd.DataFrame], **kwargs: Any
+                 ) -> Union[pd.Series, pd.DataFrame]:
         """
         Solve for the convolution of a rainfall time series and the
         unit hydrograph
@@ -697,7 +722,8 @@ class LumpedUnitHydrograph(object):
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
-    def compute(self, timestep, upper_tail_threshold=1e-4, **kwargs):
+    def compute(self, timestep: float, upper_tail_threshold: float = 1e-4,
+                **kwargs: Any) -> Type['LumpedUnitHydrograph']:
         """
         Trigger calculation of desired unit hydrograph
 
@@ -735,7 +761,8 @@ class LumpedUnitHydrograph(object):
 
         return self
 
-    def plot(self, **kwargs):
+    def plot(self, **kwargs: Any
+             ) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
         """
         Simple accessor to plotting the unit hydrograph
         Args:
@@ -748,4 +775,5 @@ class LumpedUnitHydrograph(object):
         text = ' ; '.join(text)
         fig = self.UnitHydro.plot(xlabel='(hr)', ylabel='m3 s-1 mm-1',
                                   title=text, **kwargs)
-        return fig
+        ax = matplotlib.pyplot.gca()
+        return (fig, ax)
