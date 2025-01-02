@@ -730,11 +730,8 @@ class RiverBasin(object):
         try:
             self.dem.elevation.plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
             self.dem.elevation.plot.hist(ax=ax3, zorder=0, **demhist_kwargs)
-        except Exception as e:
-            warnings.warn(e)
-
-        # Plot hypsometry
-        try:
+            if len(self.hypsometric_curve) == 0:
+                self.get_hypsometric_curve()
             self.hypsometric_curve.plot(ax=ax2, zorder=1, label='Hypsometry',
                                         **hypsometric_kwargs)
         except Exception as e:
@@ -748,21 +745,21 @@ class RiverBasin(object):
         except Exception as e:
             warnings.warn(e)
 
-        try:
-            self.rivers_main.plot(ax=ax0, label='Main River', **rivers_kwargs)
-        except Exception as e:
-            warnings.warn(e)
+        if len(self.rivers_main) > 0:
+            self.rivers_main.plot(ax=ax0, label='Main River',
+                                  **rivers_kwargs)
 
         # Plot basin exposition
-        try:
+        if len(self.params.index) > 1:
             exp = self.params[self.params.index.map(lambda x: 'exposure' in x)]
             exp.index = exp.index.map(lambda x: x.split('_')[0])
             exp = exp.loc[['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']]
             exp = pd.concat([exp.iloc[:, 0], exp.iloc[:, 0][:'N']])
             ax1.plot(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315, 0]), exp,
                      marker='o', mec='k')
-        except Exception as e:
-            warnings.warn(e)
+            ax1.set_xticks(ax1.get_xticks())
+            ax1.set_xticklabels(exp.index.values[:-1])
+            ax1.set_ylim(0, exp.max()*1.1)
 
         # Aesthetics
         try:
@@ -774,8 +771,6 @@ class RiverBasin(object):
             ax1.set_theta_zero_location("N")
             ax1.set_theta_direction(-1)
             ax1.set_xticks(ax1.get_xticks())
-            ax1.set_xticklabels(exp.index.values[:-1])
-            ax1.set_ylim(0, exp.max()*1.1)
             ax1.set_yticklabels([])
             ax1.grid(True, ls=":")
 
