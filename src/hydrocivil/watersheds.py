@@ -620,8 +620,8 @@ class RiverBasin(object):
         Compute synthetic unit hydrograph for the basin.
 
         This method creates and computes a synthetic unit hydrograph based
-        on basin parameters. For Chilean watersheds, special regional parameters
-        can be used if ChileParams = True.
+        on basin parameters. For Chilean watersheds, special regional
+        parameters can be used if ChileParams = True.
 
         Args:
             method (str): Type of synthetic unit hydrograph to use.
@@ -636,12 +636,12 @@ class RiverBasin(object):
                 computation method.
 
         Returns:
-            RiverBasin: Updated instance with computed unit hydrograph stored in 
-                UnitHydro attribute.
+            RiverBasin: Updated instance with computed unit hydrograph stored
+                in UnitHydro attribute.
 
         Raises:
-            RuntimeError: If using Chilean parameters and basin centroid lies outside 
-                valid geographical regions.
+            RuntimeError: If using Chilean parameters and basin centroid lies
+                outside valid geographical regions.
         """
         if (method == 'Linsley') and ChileParams:
             poly = CHILE_UH_LINSLEYPOLYGONS
@@ -675,36 +675,116 @@ class RiverBasin(object):
         return self
 
     def plot(self,
-             outlet_kwargs: dict = {'ec': 'k',
-                                    'color': 'tab:red', 'zorder': 2},
-             basin_kwargs: dict = {'color': 'silver', 'edgecolor': 'k'},
-             rivers_kwargs: dict = {'color': 'tab:blue', 'alpha': 0.5},
-             rivers_main_kwargs: dict = {'color': 'tab:red'}
-             ) -> matplotlib.axes.Axes:
+             legend_kwargs: dict = {'loc': 'upper left'},
+             outlet_kwargs: dict = {'ec': 'k', 'color': 'tab:red'},
+             basin_kwargs: dict = {'edgecolor': 'k'},
+             demimg_kwargs: dict = {'cbar_kwargs': {'label': '(m)',
+                                                    'shrink': 0.8}},
+             demhist_kwargs: dict = {'density': True, 'alpha': 0.5},
+             hypsometric_kwargs: dict = {'color': 'darkblue'},
+             rivers_kwargs: dict = {'color': 'tab:red'},
+             kwargs: dict = {'figsize': (12, 5)}) -> matplotlib.axes.Axes:
         """
-        Simple plot function for the basin taking account polygon and rivers
+        Create a comprehensive visualization of watershed characteristics
+            including:
+            - 2D map view showing DEM, basin boundary, rivers and outlet point
+            - Polar plot showing terrain aspect/exposure distribution
+            - Hypsometric curve and elevation histogram
 
         Args:
-            outlet_kwargs (dict, optional): Arguments for the basin outlet.
-                Defaults to {'ec': 'k', 'color': 'tab:red', 'zorder': 10}.
-            basin_kwargs (dict, optional): Arguments for the basin.
-                Defaults to {'color': 'silver', 'edgecolor': 'k'}.
-            rivers_kwargs (dict, optional): Arguments for the rivers.
-                Defaults to {'color': 'tab:blue'}.
-            rivers_main_kwargs (dict, optional): Arguments for the main rivers.
+            legend (bool, optional): Whether to display legend.
+                Defaults to True.
+            legend_kwargs (dict, optional): Arguments for legend formatting.
+                Defaults to {'loc': 'upper left'}.
+            outlet_kwargs (dict, optional): Styling for basin outlet point.
+                Defaults to {'ec': 'k', 'color': 'tab:red'}.
+            basin_kwargs (dict, optional): Styling for basin boundary.
+                Defaults to {'edgecolor': 'k'}.
+            demimg_kwargs (dict, optional): Arguments for DEM image display.
+                Defaults to {'cbar_kwargs': {'label': '(m)', 'shrink': 0.8}}.
+            demhist_kwargs (dict, optional): Arguments for elevation histogram.
+                Defaults to {'density': True, 'alpha': 0.5}.
+            hypsometric_kwargs (dict, optional): Styling for hypsometric curve.
+                Defaults to {'color': 'darkblue'}.
+            rivers_kwargs (dict, optional): Styling for river network.
                 Defaults to {'color': 'tab:red'}.
+            kwargs (dict, optional): Additional figure parameters.
+                Defaults to {'figsize': (12, 5)}.
 
         Returns:
-            matplotlib axes instance
+            (tuple): Matplotlib figure and axes objects
+                (fig, (ax0, ax1, ax2, ax3))
+                - ax0: Map view axis
+                - ax1: Aspect distribution polar axis  
+                - ax2: Hypsometric curve axis
+                - ax3: Elevation histogram axis
         """
-        plot_basin = self.basin.plot(**basin_kwargs)
-        plot_basin.axes.set_title(self.fid, loc='left')
-        self.rivers.plot(ax=plot_basin.axes, **rivers_kwargs)
-        plot_basin.axes.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
-                                **outlet_kwargs)
-        if len(self.rivers_main) != 0:
-            self.rivers_main.plot(ax=plot_basin.axes, **rivers_main_kwargs)
-        return plot_basin.axes
+        # Create figure and axes
+        fig = matplotlib.pyplot.figure(**kwargs)
+        ax0 = fig.add_subplot(121)
+        ax1 = fig.add_subplot(222, projection='polar')
+        ax2 = fig.add_subplot(224)
+        ax3 = ax2.twinx()
+
+        # Plot dem data
+        try:
+            self.dem.elevation.plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
+            self.dem.elevation.plot.hist(ax=ax3, zorder=0, **demhist_kwargs)
+        except Exception as e:
+            warnings.warn(e)
+
+        # Plot hypsometry
+        try:
+            self.hypsometric_curve.plot(ax=ax2, zorder=1, label='Hypsometry',
+                                        **hypsometric_kwargs)
+        except Exception as e:
+            warnings.warn(e)
+
+        # Plot basin and rivers
+        try:
+            self.basin.boundary.plot(ax=ax0, zorder=2, **basin_kwargs)
+            ax0.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
+                        label='Outlet', zorder=3, **outlet_kwargs)
+        except Exception as e:
+            warnings.warn(e)
+
+        try:
+            self.rivers_main.plot(ax=ax0, label='Main River', **rivers_kwargs)
+        except Exception as e:
+            warnings.warn(e)
+
+        # Plot basin exposition
+        try:
+            exp = self.params[self.params.index.map(lambda x: 'exposure' in x)]
+            exp.index = exp.index.map(lambda x: x.split('_')[0])
+            exp = exp.loc[['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']]
+            exp = pd.concat([exp.iloc[:, 0], exp.iloc[:, 0][:'N']])
+            ax1.plot(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315, 0]), exp,
+                     marker='o', mec='k')
+        except Exception as e:
+            warnings.warn(e)
+
+        # Aesthetics
+        try:
+            for axis in [ax0, ax1, ax2, ax3]:
+                axis.set_title('')
+                if axis in [ax0, ax2]:
+                    axis.legend(**legend_kwargs)
+
+            ax1.set_theta_zero_location("N")
+            ax1.set_theta_direction(-1)
+            ax1.set_xticks(ax1.get_xticks())
+            ax1.set_xticklabels(exp.index.values[:-1])
+            ax1.set_ylim(0, exp.max()*1.1)
+            ax1.set_yticklabels([])
+            ax1.grid(True, ls=":")
+
+            ax2.grid(True, ls=":")
+            ax2.set_ylim(0, 1)
+            ax2.set_xlabel('(m)')
+        except Exception as e:
+            warnings.warn(e)
+        return fig, (ax0, ax1, ax2, ax3)
 
 
 # class RiverReach(object):
