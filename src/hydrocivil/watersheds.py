@@ -16,16 +16,22 @@ import rioxarray as rxr
 import xarray as xr
 import copy as pycopy
 
-from osgeo import gdal
+from osgeo import gdal, gdal_array
 from scipy.interpolate import interp1d
 
-from .misc import raster_distribution, polygonize
+from .misc import raster_distribution, polygonize, gdal2xarray, xarray2gdal
 from .unithydrographs import LumpedUnitHydrograph as SUH
 from .geomorphology import get_main_river, basin_outlet
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
+from .global_vars import GDAL_EXCEPTIONS
 from .abstractions import cn_correction
 from .abstractions import SCS_EffectiveRainfall, SCS_EquivalentCurveNumber
+
+if GDAL_EXCEPTIONS:
+    gdal.UseExceptions()
+else:
+    gdal.DontUseExceptions()
 # ---------------------------------------------------------------------------- #
 
 
@@ -180,29 +186,34 @@ class RiverBasin(object):
         """
         return pycopy.deepcopy(self)
 
-    def _process_gdaldem(self, varname, overwrite=True,
-                         open_rasterio_kwargs={}, **kwargs):
+    def _process_gdaldem(self, varname, **kwargs):
         """
         Accessor to gdaldem command line utility.
 
         Args:
-            open_rasterio_kwargs (dict, optional):
-                Arguments for rioxarray open rasterio function. Defaults to {}.
+
 
         Returns:
             xarray.DataArray: DEM derived property
         """
-        ipath = os.path.abspath(self.dem.elevation.encoding['source'])
-        fname = os.path.basename(self.dem.elevation.encoding['source'])
-        oname = os.path.join(os.path.dirname(ipath), f'{varname}_{fname}')
-        if os.path.isfile(oname) and not overwrite:
-            field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
-            field = field.squeeze().to_dataset(name=varname)
-        else:
-            gdal.DEMProcessing(oname, ipath, varname, **kwargs)
-            field = rxr.open_rasterio(oname, **open_rasterio_kwargs)
-            field = field.squeeze().to_dataset(name=varname)
-        return field
+        dem_xr = self.dem.elevation
+        dem_gdal = xarray2gdal(dem_xr)
+
+        # Create in-memory output GDAL dataset
+        dtype = gdal_array.NumericTypeCodeToGDALTypeCode(dem_xr.dtype)
+        mem_driver = gdal.GetDriverByName('MEM')
+        out_ds = mem_driver.Create('', dem_xr.sizes['x'], dem_xr.sizes['y'], 1,
+                                   dtype)
+        out_ds.SetGeoTransform(dem_xr.rio.transform().to_gdal())
+        out_ds.SetProjection(dem_xr.rio.crs.to_wkt())
+
+        # Process DEM using gdal.DEMProcessing
+        out_ds = gdal.DEMProcessing(out_ds.GetDescription(), dem_gdal, varname,
+                                    format='MEM', computeEdges=True, **kwargs)
+        out_ds = gdal2xarray(out_ds).to_dataset(name=varname)
+        out_ds.coords['y'] = dem_xr.coords['y']
+        out_ds.coords['x'] = dem_xr.coords['x']
+        return out_ds
 
     def _processgeography(self, n=3, **kwargs):
         """
@@ -230,7 +241,7 @@ class RiverBasin(object):
         self.params = pd.concat([self.params, geo_params], axis=1)
         return self
 
-    def _processdem(self, preprocess=True, **kwargs):
+    def _processdem(self, gdalpreprocess=True):
         """
         Compute hypsometric curve, slope and aspect. Then compute DEM
         derived propeties for the basin and save in the params dataframe.
@@ -239,23 +250,20 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            if preprocess:
+            if gdalpreprocess:
                 curve = self.get_hypsometric_curve()
-                slope = self._process_gdaldem('slope',
-                                              computeEdges=True,
-                                              slopeFormat='percent',
-                                              open_rasterio_kwargs={**kwargs})
-                aspect = self._process_gdaldem('aspect',
-                                               computeEdges=True,
-                                               open_rasterio_kwargs={**kwargs})
-                self.dem = xr.merge([self.dem,
-                                     slope.copy()/100,
-                                     aspect.copy()])
-                self.dem.attrs = {'standard_name': 'terrain model',
-                                  'hypsometry_x': [f'{i:.2f}'
-                                                   for i in curve.index],
-                                  'hypsometry_y': [f'{j:3f}'
-                                                   for j in curve.values]}
+                slope = self._process_gdaldem('slope', slopeFormat='percent')
+                aspect = self._process_gdaldem('aspect')
+
+                slope = slope.where(slope != -9999)
+                aspect = aspect.where(aspect != -9999)
+
+                self.dem = xr.merge([self.dem.elevation, slope/100, aspect])
+                self.dem.attrs = {
+                    'standard_name': 'terrain model',
+                    'hypsometry_x': [f'{i:.2f}' for i in curve.index],
+                    'hypsometry_y': [f'{j:3f}' for j in curve.values]
+                }
             # DEM derived params
             terrain_params = basin_terrain_params(self.fid, self.dem)
         except Exception as e:
@@ -463,7 +471,7 @@ class RiverBasin(object):
         self._processgeography(**geography_kwargs)
 
         # Compute slope and aspect. Update dem property
-        self._processdem(masked=True, **dem_kwargs)
+        self._processdem(**dem_kwargs)
 
         # Flow derived params
         self._processrivers(**river_network_kwargs)
