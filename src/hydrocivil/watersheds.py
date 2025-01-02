@@ -10,12 +10,16 @@
 import os
 import warnings
 
+
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import rioxarray as rxr
 import xarray as xr
 import copy as pycopy
+import matplotlib
 
+from typing import Union, Any, Optional, Type, Tuple
 from osgeo import gdal, gdal_array
 from scipy.interpolate import interp1d
 
@@ -85,7 +89,11 @@ class RiverBasin(object):
         -> whsed.UnitHydro.convolve(rainfall)
     """
 
-    def _tests(self, basin, rivers, dem, cn):
+    def _tests(self,
+               basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+               rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+               dem: xr.DataArray,
+               cn: xr.DataArray) -> None:
         """
         Args:
             basin (GeoDataFrame): Basin polygon
@@ -109,7 +117,12 @@ class RiverBasin(object):
             error = prj_error.format('Curve Number raster')
             raise RuntimeError(error)
 
-    def __init__(self, fid, basin, rivers, dem, cn=None, amc='II'):
+    def __init__(self, fid: Union[str, int, float],
+                 basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+                 rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+                 dem: xr.DataArray,
+                 cn: Union[xr.DataArray, None] = None,
+                 amc: Optional[str] = 'II') -> None:
         """
         Drainage Basin class constructor
 
@@ -180,21 +193,26 @@ class RiverBasin(object):
         text = text+f'Parameters: {param_text}'
         return text
 
-    def copy(self):
+    def copy(self) -> Type['RiverBasin']:
         """
         Create a deep copy of the class itself
         """
         return pycopy.deepcopy(self)
 
-    def _process_gdaldem(self, varname, **kwargs):
+    def _process_gdaldem(self, varname: str, **kwargs: Any) -> xr.Dataset:
         """
-        Accessor to gdaldem command line utility.
+        Processes a Digital Elevation Model (DEM) using the GDAL DEMProcessing
+        utility. This method utilizes the GDAL DEMProcessing command line
+        utility to derive various properties from a DEM. The output is returned
+        as an xarray Dataset.
 
         Args:
-
+            varname (str): The name of the DEM derived property to compute.
+            **kwargs (Any): Additional keyword arguments to pass to the GDAL
+                DEMProcessing function.
 
         Returns:
-            xarray.DataArray: DEM derived property
+            xr.Dataset: An xarray Dataset containing the DEM derived property.
         """
         dem_xr = self.dem.elevation
         dem_gdal = xarray2gdal(dem_xr)
@@ -215,7 +233,8 @@ class RiverBasin(object):
         out_ds.coords['x'] = dem_xr.coords['x']
         return out_ds
 
-    def _processgeography(self, n=3, **kwargs):
+    def _processgeography(self, n: int = 3,
+                          **kwargs: Any) -> Type['RiverBasin']:
         """
         Compute geographical parameters of the basin
 
@@ -241,7 +260,7 @@ class RiverBasin(object):
         self.params = pd.concat([self.params, geo_params], axis=1)
         return self
 
-    def _processdem(self, gdalpreprocess=True):
+    def _processdem(self, gdalpreprocess: bool = True) -> Type['RiverBasin']:
         """
         Compute hypsometric curve, slope and aspect. Then compute DEM
         derived propeties for the basin and save in the params dataframe.
@@ -272,7 +291,7 @@ class RiverBasin(object):
         self.params = pd.concat([self.params, terrain_params], axis=1)
         return self
 
-    def _processrivers(self):
+    def _processrivers(self) -> Type['RiverBasin']:
         """
         Compute river network properties
 
@@ -292,7 +311,8 @@ class RiverBasin(object):
             warnings.warn('Flow derived properties Error:', e, self.fid)
         return self
 
-    def _processrastercounts(self, raster, output_type=1):
+    def _processrastercounts(self, raster: xr.DataArray, output_type: int = 1
+                             ) -> pd.DataFrame:
         """
         Computes area distributions of rasters (% of the basin area with the
         X raster property)
@@ -342,18 +362,18 @@ class RiverBasin(object):
             warnings.warn('Raster counting Error:', e, self.fid)
         return counts
 
-    def set_parameter(self, index, value):
+    def set_parameter(self, index: str, value: Any) -> Type['RiverBasin']:
         """
         Simple function to add or fix a parameter to the basin parameters table
 
         Args:
             index (str): parameter name/id or what to put in the table index
-            value (object): value of the new parameter
+            value (Any): value of the new parameter
         """
         self.params.loc[index, :] = value
         return self
 
-    def get_basin_outlet(self, n=3):
+    def get_basin_outlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
         """
         This function computes the basin outlet point defined as the
         point of minimum elevation along the basin boundary.
@@ -371,25 +391,39 @@ class RiverBasin(object):
         self.basin['outlet_y'] = outlet_y
         return (outlet_y, outlet_x)
 
-    def get_hypsometric_curve(self, bins='auto', **kwargs):
+    def get_hypsometric_curve(self, bins: Union[str, int, float] = 'auto',
+                              **kwargs: Any) -> pd.Series:
         """
-        Based on terrain, compute hypsometric curve of the basin
+        Compute the hypsometric curve of the basin based on terrain elevation
+        data. The hypsometric curve represents the distribution of elevation
+        within the basin, expressed as the fraction of the total area that lies
+        below a given elevation.
+        Args:
+            bins (str|int|float, optional): The method or number of
+                bins to use for the elevation distribution. Default is 'auto'.
+            **kwargs (Any): Additional keyword arguments to pass to the
+                raster_distribution function.
 
         Returns:
-            pandas.Series: Hypsometric curve expressed as fraction of area
-                           below a certain elevation.
+            pandas.Series: A pandas Series representing the hypsometric curve,
+                where the index corresponds to elevation bins and the values
+                represent the cumulative fraction of the area below each
+                elevation.
         """
         curve = raster_distribution(self.dem.elevation, bins=bins, **kwargs)
         self.hypsometric_curve = curve.cumsum()
         return curve
 
-    def area_below_height(self, height, **kwargs):
+    def area_below_height(self, height: Union[int, float], **kwargs: Any
+                          ) -> float:
         """
         With the hypsometric curve compute the fraction of area below
-        a certain height in the basin.
+        a certain height.
 
         Args:
-            height (float): elevation value
+            height (int|float): elevation value
+            **kwargs (Any): Additional keyword arguments to pass to the
+                raster_distribution function.
 
         Returns:
             (float): fraction of area below given elevation
@@ -405,16 +439,28 @@ class RiverBasin(object):
         interp_func = interp1d(curve.index.values, curve.values)
         return interp_func(height).item()
 
-    def get_equivalent_curvenumber(self, pr_range=(1, 1000), **kwargs):
+    def get_equivalent_curvenumber(self,
+                                   pr_range: Tuple[float, float] = (1., 1000.),
+                                   **kwargs: Any) -> pd.Series:
         """
-        This routine calculates the dependence of the watershed curve number
-        on precipitation due to land cover heterogeneities. 
+        Calculate the dependence of the watershed curve number on precipitation
+        due to land cover heterogeneities.
+
+        This routine computes the equivalent curve number for a heterogeneous
+        basin as a function of precipitation. It takes into account the
+        distribution of curve numbers within the basin and the corresponding
+        effective rainfall for a range of precipitation values.
+
         Args:
-            pr_range (tuple): Minimum and maximum possible precipitations
-            **kwargs are given to SCS_EffectiveRainfall routine.
+            pr_range (tuple): Minimum and maximum possible precipitation (mm).
+            **kwargs: Additional keyword arguments to pass to the
+                SCS_EffectiveRainfall and SCS_EquivalentCurveNumber routine.
 
         Returns:
-            (array_like): Basin curve number as a function of precipitation (mm)
+            pd.Series: A pandas Series representing the equivalent curve number
+                as a function of precipitation, where the index corresponds to
+                precipitation values and the values represent the equivalent
+                curve number.
         """
         # Precipitation range
         pr = np.linspace(pr_range[0], pr_range[1], 1000)
@@ -439,9 +485,11 @@ class RiverBasin(object):
         self.cn_equivalent = curve
         return curve
 
-    def compute_params(self, dem_kwargs={}, geography_kwargs={},
-                       river_network_kwargs={}):
+    def compute_params(self, dem_kwargs: dict = {},
+                       geography_kwargs: dict = {},
+                       river_network_kwargs: dict = {}) -> Type['RiverBasin']:
         """
+
         Compute basin geomorphological properties:
             1) Geographical properties: centroid coordinates, area, etc
                 Details in src.geomorphology.basin_geographical_params routine
@@ -477,23 +525,36 @@ class RiverBasin(object):
         self._processrivers(**river_network_kwargs)
 
         # Curve number process
-        # self.cn_counts = self._processrastercounts(self.cn)
         self.params['curvenumber'] = self.cn.mean().item()
         self.params = self.params.T.astype(object)
 
-        # self.params = pd.concat([self.params.T, cn_counts], axis=0)
-
         return self
 
-    def clip(self, polygon, **kwargs):
+    def clip(self, polygon: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+             **kwargs: Any) -> Type['RiverBasin']:
         """
-        Clip watershed data into the given polygon. Update geomorphometric
-        parameters and inner class data. 
-        Args:
-            polygon (_type_): Polygon (must be in the same crs)
+        Clip watershed data to a specified polygon boundary and create a new
+        RiverBasin object. This method creates a new RiverBasin instance with
+        all data (basin boundary, rivers, DEM, etc) clipped to the given
+        polygon boundary. It also recomputes all geomorphometric parameters for
+        the clipped area.
 
+        Args:
+            polygon (Union[gpd.GeoSeries, gpd.GeoDataFrame]): Polygon defining
+                the clip boundary. Must be in the same coordinate reference
+                system (CRS) as the watershed data.
+            **kwargs (Any): Additional keyword arguments to pass to
+                self.compute_params() method.
+            dem_kwargs (dict, optional): Dictionary of keyword arguments for
+                DEM processing. If provided, preprocess will be set to False.
         Returns:
-            New RiverBasin object with clipped data
+            self: A new RiverBasin object containing the clipped data and
+                updated parameters.
+        Notes:
+            - The input polygon will be dissolved to ensure a single boundary
+            - No-data values (-9999) are filtered out from DEM and CN rasters
+            - All geomorphometric parameters are recomputed for the clipped
+              area
         """
         polygon = polygon.dissolve()
         nbasin = self.basin.copy().clip(polygon)
@@ -517,20 +578,33 @@ class RiverBasin(object):
         nwshed.compute_params(**kwargs)
         return nwshed
 
-    def update_snowline(self, snowline, polygonize_kwargs={}, **kwargs):
+    def update_snowline(self, snowline: Union[int, float],
+                        polygonize_kwargs: dict = {},
+                        **kwargs: Any) -> Type['RiverBasin']:
         """
-        From a given snowline height, this routine updates the basin object to
-        the target basin pluvial area, changing the basin polygon, data and
-        geomorphometric properties. 
+        Updates the RiverBasin object to represent only the pluvial (rain-fed) 
+        portion of the watershed below a given snowline elevation.
+
+        This method clips the basin to areas below the specified snowline 
+        elevation threshold. The resulting watershed represents only the
+        portion of the basin that receives precipitation as rainfall rather
+        than snow. All watershed properties (area, rivers, DEM, etc.) are
+        updated accordingly.
 
         Args:
-            snowline (float): Height of the snowline (same units as input dem)
-            polygonize_kwargs (dict, optional): Aditional arguments to
-                polygonize function. Defaults to {}.
+            snowline (int|float): Elevation threshold in same units as DEM that 
+                defines the rain/snow transition zone
+            polygonize_kwargs (dict, optional): Additional keyword arguments 
+                passed to the polygonize function. Defaults to {}.
+            **kwargs: Additional keyword arguments passed to the clip method
+
         Raises:
-            ValueError: If snowline is outside DEM elevation range
+            TypeError: If snowline argument is not numeric
+            ValueError: If snowline elevation is below minimum basin elevation
+
         Returns:
-            updated class
+            RiverBasin: A new RiverBasin object containing only the pluvial
+                portion of the original watershed below the snowline
         """
         if not isinstance(snowline, (int, float)):
             raise TypeError("Snowline must be numeric")
@@ -540,17 +614,34 @@ class RiverBasin(object):
         nshp = polygonize(self.dem.elevation < snowline, **polygonize_kwargs)
         return self.clip(nshp, **kwargs)
 
-    def SynthUnitHydro(self, method, ChileParams=False, **kwargs):
+    def SynthUnitHydro(self, method: str, ChileParams: bool = False,
+                       **kwargs: Any) -> Type['RiverBasin']:
         """
-        Synthetic Unit Hygrograph class accessor
+        Compute synthetic unit hydrograph for the basin.
+
+        This method creates and computes a synthetic unit hydrograph based
+        on basin parameters. For Chilean watersheds, special regional parameters
+        can be used if ChileParams = True.
 
         Args:
-            method (str): Type of synthetic unit hydrograph to use. 
-                Options: 'SCS', 'Gray', 'Arteaga&Benitez', 
-            ChileParams (bool): Whether to use Chile-specific parameters
-            **kwargs are given to the synthetic unit hydrograph routine.
+            method (str): Type of synthetic unit hydrograph to use.
+                Options: 
+                    - 'SCS': SCS dimensionless unit hydrograph
+                    - 'Gray': Gray's method
+                    - 'Linsley': Linsley method
+            ChileParams (bool): Whether to use Chile-specific regional
+                parameters. Only valid for 'Gray' and 'Linsley' methods.
+                Defaults to False.
+            **kwargs: Additional arguments passed to the unit hydrograph
+                computation method.
+
         Returns:
-            (RiverBasin): Updated RiverBasin instance
+            RiverBasin: Updated instance with computed unit hydrograph stored in 
+                UnitHydro attribute.
+
+        Raises:
+            RuntimeError: If using Chilean parameters and basin centroid lies outside 
+                valid geographical regions.
         """
         if (method == 'Linsley') and ChileParams:
             poly = CHILE_UH_LINSLEYPOLYGONS
@@ -583,10 +674,13 @@ class RiverBasin(object):
         self.UnitHydro = uh
         return self
 
-    def plot(self, outlet_kwargs={'ec': 'k', 'color': 'tab:red', 'zorder': 10},
-             basin_kwargs={'color': 'silver', 'edgecolor': 'k'},
-             rivers_kwargs={'color': 'tab:blue'},
-             rivers_main_kwargs={'color': 'tab:red'}):
+    def plot(self,
+             outlet_kwargs: dict = {'ec': 'k',
+                                    'color': 'tab:red', 'zorder': 2},
+             basin_kwargs: dict = {'color': 'silver', 'edgecolor': 'k'},
+             rivers_kwargs: dict = {'color': 'tab:blue', 'alpha': 0.5},
+             rivers_main_kwargs: dict = {'color': 'tab:red'}
+             ) -> matplotlib.axes.Axes:
         """
         Simple plot function for the basin taking account polygon and rivers
 
@@ -613,50 +707,50 @@ class RiverBasin(object):
         return plot_basin.axes
 
 
-class RiverReach(object):
-    def tests(self, rivers, dem):
-        """
-        Args:
-            rivers (GeoDataFrame): River network lines
-            dem (xarray.DataArray): Digital elevation model raster
-        Raises:
-            RuntimeError: If any dataset isnt in a projected (UTM) crs.
-        """
-        prj_error = '{} must be in a projected (UTM) crs !'
-        if not rivers.crs.is_projected:
-            error = prj_error.format('Rivers geometry')
-            raise RuntimeError(error)
-        if not dem.rio.crs.is_projected:
-            error = prj_error.format('DEM raster')
-            raise RuntimeError(error)
+# class RiverReach(object):
+#     def tests(self, rivers, dem):
+#         """
+#         Args:
+#             rivers (GeoDataFrame): River network lines
+#             dem (xarray.DataArray): Digital elevation model raster
+#         Raises:
+#             RuntimeError: If any dataset isnt in a projected (UTM) crs.
+#         """
+#         prj_error = '{} must be in a projected (UTM) crs !'
+#         if not rivers.crs.is_projected:
+#             error = prj_error.format('Rivers geometry')
+#             raise RuntimeError(error)
+#         if not dem.rio.crs.is_projected:
+#             error = prj_error.format('DEM raster')
+#             raise RuntimeError(error)
 
-    def __init__(self, fid, dem, rivers):
-        """
-        River reach/channel class constructor
+#     def __init__(self, fid, dem, rivers):
+#         """
+#         River reach/channel class constructor
 
-        Args:
-            fid (str): Basin identifier
-            rivers (GeoDataFrame): River network segments
-            dem (xarray.DataArray): Digital elevation model
+#         Args:
+#             fid (str): Basin identifier
+#             rivers (GeoDataFrame): River network segments
+#             dem (xarray.DataArray): Digital elevation model
 
-        Raises:
-            RuntimeError: If any of the given spatial data isnt in a projected
-                cartographic projection.
-        """
-        self.tests(rivers, dem)
-        # ID
-        self.fid = fid
+#         Raises:
+#             RuntimeError: If any of the given spatial data isnt in a projected
+#                 cartographic projection.
+#         """
+#         self.tests(rivers, dem)
+#         # ID
+#         self.fid = fid
 
-        # Vectors
-        self.rivers = rivers
-        self.rivers_main = pd.Series([])
+#         # Vectors
+#         self.rivers = rivers
+#         self.rivers_main = pd.Series([])
 
-        # Terrain
-        self.dem = dem.rio.write_nodata(-9999).squeeze()
-        self.dem = self.dem.to_dataset(name='elevation')
-        self.dem.encoding = dem.encoding
+#         # Terrain
+#         self.dem = dem.rio.write_nodata(-9999).squeeze()
+#         self.dem = self.dem.to_dataset(name='elevation')
+#         self.dem.encoding = dem.encoding
 
 
-class Reservoir(object):
-    def __init__(self):
-        pass
+# class Reservoir(object):
+#     def __init__(self):
+#         pass
