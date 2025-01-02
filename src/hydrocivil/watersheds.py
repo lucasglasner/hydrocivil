@@ -18,6 +18,7 @@ import rioxarray as rxr
 import xarray as xr
 import copy as pycopy
 import matplotlib
+import matplotlib.pyplot as plt
 
 from typing import Union, Any, Optional, Type, Tuple
 from osgeo import gdal, gdal_array
@@ -720,7 +721,7 @@ class RiverBasin(object):
                 - ax3: Elevation histogram axis
         """
         # Create figure and axes
-        fig = matplotlib.pyplot.figure(**kwargs)
+        fig = plt.figure(**kwargs)
         ax0 = fig.add_subplot(121)
         ax1 = fig.add_subplot(222, projection='polar')
         ax2 = fig.add_subplot(224)

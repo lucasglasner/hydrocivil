@@ -1,0 +1,9 @@
+!.gitignore
+
+AnalisisGeomorfologico/
+MetodoRacional/
+HUS/
+misc.ipynb
+sdh*.ipynb
+whitebox.ipynb
+HidrogramasCrecida.ipynb
