@@ -297,7 +297,7 @@ def SUH_Gray(area, mriverlen, meanslope, a, b,
              interp_kwargs={'kind': 'quadratic'}):
     """
     Gray's' method assumes a SUH that follows the gamma function, which
-    reflects the theoretical result of the basin made of an infinite series
+    reflects the theoretical result of a basin made of an infinite series
     of lineal reservoirs.
 
     The model suggests that the dimensionless unit hydrograph can be obtained
@@ -467,7 +467,7 @@ def SUH_Linsley(area, mriverlen, out2centroidlen, meanslope, C_t, n_t,
 # ------------------------------- MAIN CLASSES ------------------------------- #
 
 
-class LumpedUnitHydro(object):
+class LumpedUnitHydrograph(object):
     """
     Synthetic Unit Hydrograph class used for building unit hydrograph of
     river basins as a function of geomorphometric and land use properties.
@@ -479,7 +479,7 @@ class LumpedUnitHydro(object):
     Examples:
         + Compute SCS UH for a storm duration of 1 hour.
         + Show params and the related S-Curve
-        -> suh = LumpedUnitHydro(method='SCS', geoparams=geoparams)
+        -> suh = LumpedUnitHydrograph(method='SCS', geoparams=geoparams)
         -> suh.compute(timestep=1)
         -> suh.UnitHydroParams
         -> suh.SHydrograph
@@ -604,7 +604,8 @@ class LumpedUnitHydro(object):
                 parameters for Chilean basins. Defaults to False.
 
         Returns:
-            _type_: _description_
+            (tuple): tuple with the unit hydrograph time series and the
+                respective table of parameters
         """
         geoparams = ['area', 'mriverlen', 'meanslope']
         if DGAChileParams:
@@ -629,16 +630,17 @@ class LumpedUnitHydro(object):
         S_uh = pd.concat(sums, axis=1).sum(axis=1)
         return S_uh
 
-    def update_duration(self, duration, kind='quadratic', **kwargs):
+    def update_duration(self, duration, interp_kwargs={'kind': 'quadratic'}):
         """
         This function uses de S-Curve to update the unit hydrograph duration
         and the respective parameters.
 
         Args:
             duration (float): New storm duration (equal to time resolution)
-            kind (str, optional): Specifies the kind of interpolation as
-            a string. Defaults to 'quadratic'.
-            **kwargs are given to interpolation function
+            interp_kwargs (dict, optional): args passed to
+                scipy.interpolation.interp1d function. 
+                Defaults to {'kind':'quadratic'}.
+
 
         Returns:
             self: Updated Class
@@ -646,7 +648,7 @@ class LumpedUnitHydro(object):
         time, SCurve = self.UnitHydro.index, self.SUnitHydro
         new_time = np.arange(time[0], time[-1]+duration, duration)
         interp_func = interp1d(time, SCurve.values, fill_value='extrapolate',
-                               kind=kind, **kwargs)
+                               **interp_kwargs)
         SCurve_new = pd.Series(interp_func(new_time), index=new_time)
         uh_new = (SCurve_new-SCurve_new.shift(1).fillna(0))
         uh_new = uh_new.where(uh_new > 0).dropna()

@@ -1,6 +1,6 @@
 ## hydrocivil: a package for hydrological methods in civil and enviromental engineering
 
-Typical tasks related to water resources and engineering require quick calculations of hydrological phenomena such as: storm hyetographs, soil infiltration, flood hydrographs, flood routing through channels or reservoirs, etc. With this purpose in mind, the package is presented as an alternative to perform calculations that are usually done in tedious spreadsheets in a fast pythonic way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. At least not for now, the package isnt intended to be a replacement of larger hydrological models (e.g. HEC-HMS), but rather a fast, customizable and automatic alternative for simple multi-basin calculations.
+Typical tasks related to water resources and engineering require quick calculations of hydrological phenomena such as: storm hyetographs, soil infiltration, flood hydrographs, flood routing through channels or reservoirs, etc. With this purpose in mind, the package is presented as an alternative to perform calculations that are usually done in tedious spreadsheets in a fast pythonic way. The purpose is to give tools to the engineer to calculate hydrologic processes with methods and techniques he/she deems convenient, such as different varieties of synthetic unit hydrographs, synthetic storms or basin geomorphometric parameters. The package isnt intended to be a replacement of larger hydrological models (e.g. HEC-HMS), but rather a fast customizable and automatic alternative for multi-basin calculations.
 
 The package is largely oriented to Chilean national standards, however many methods originally come from the USA NCRS National Engineering Handbook.
 
@@ -81,18 +81,3 @@ wshed.UnitHydro.convolve(storm.Effective_Hyetograph).plot()
     <Axes: >
 
 ![png](image/example_hydrograph.png)
-
-## Reference
-
-* Glasner, L. (2024).  *hydrocivil: A package for hydrological methods in civil and environmental engineering* . GitHub. Retrieved from [https://github.com/lucasglasner/hydrocivil](https://github.com/lucasglasner/hydrocivil).
-
-```bib
-@misc{hydrocivil2024,
-  author = {Glasner, L.},
-  title = {hydrocivil: a package for hydrological methods in civil and enviromental engineering},
-  year = {2024},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/lucasglasner/hydrocivil}},
-}
-```

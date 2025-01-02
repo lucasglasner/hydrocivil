@@ -1,21 +1,45 @@
 '''
+ hydrocivil: a package for hydrological methods in civil and enviromental engineering.
+ For more information see: https://github.com/lucasglasner/hydrocivil
+
  Author: Lucas Glasner (lgvivanco96@gmail.com)
  Create Time: 2024-09-DD 16:42:58
  Modified by: Lucas Glasner, 
  Modified time: 2024-10-DD 18:49:12
- Description:
- Dependencies:
+ Dependencies: numpy, pandas, scipy, matplotlib, rioxarray, rasterio, xarray,
+ shapely, geopandas, networkx, whitebox_workflows (optional).
 '''
 
 
-from . import misc
-from . import abstractions
-from . import geomorphology
-from . import unithydrographs
-from . import rain
-from . import watersheds
-from . import web
-from . import wb_tools
+# Core functionality
+from . import (
+    abstractions,
+    geomorphology,
+    unithydrographs,
+    rain,
+    watersheds,
+)
 
-__all__ = ['misc', 'abstractions', 'geomorphology', 'unithydrographs',
-           'rain', 'watersheds', 'web', 'wb_tools']
+# Direct class imports
+from .watersheds import RiverBasin
+from .rain import RainStorm
+from .unithydrographs import LumpedUnitHydrograph
+
+# Utilities
+from . import (
+    misc,
+    web,
+    wb_tools,
+)
+
+__version__ = "0.7.0"
+__author__ = "Lucas Glasner"
+__email__ = "lgvivanco96@gmail.com"
+__license__ = "MIT"
+
+from typing import List
+__all__: List[str] = [
+    'RiverBasin',
+    'LumpedUnitHydrograph',
+    'RainStorm'
+]

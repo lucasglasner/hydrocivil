@@ -9,10 +9,39 @@
 
 import os
 import pandas as pd
-import xarray as xr
 import numpy as np
 
+import geopandas as gpd
+import xarray as xr
+
+from rasterio.features import shapes
+from shapely.geometry import shape
+
 # ------------------------------------ gis ----------------------------------- #
+
+
+def polygonize(da, filter_areas=0):
+    """
+    Polygonize a boolean rioxarray boolean raster
+    Args:
+        da (xarray.DataArray): Loaded raster as an xarray object. This should
+            have typical rioxarray attributes like da.rio.crs
+            and da.rio.transform
+        filter_areas (float, optional): Remove polygons with an area less than
+        filter areas. Defaults to 0.
+
+    Returns:
+        (geopandas.GeoDataFrame): polygonized boolean raster
+    """
+    da = da.astype(int)
+    polygons = []
+    for s, v in shapes(da, transform=da.rio.transform()):
+        if v == 1:
+            polygons.append(shape(s))
+    polygons = gpd.GeoSeries(polygons)
+    polygons = gpd.GeoDataFrame(geometry=polygons, crs=da.rio.crs)
+    polygons = polygons.where(polygons.area > filter_areas).dropna()
+    return polygons
 
 
 def obj_to_xarray(obj, **kwargs):

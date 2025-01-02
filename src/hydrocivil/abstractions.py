@@ -9,29 +9,33 @@
 
 import pandas as pd
 import numpy as np
+from numpy.typing import ArrayLike
+from typing import Union
 # ------------------------ SCS curve number equations ------------------------ #
 
 
-def cn_correction(cn_II, amc):
+def cn_correction(cn_II: Union[int, float, ArrayLike],
+                  amc: str) -> Union[float, ArrayLike]:
     """
     This function changes the curve number value according to antecedent
     moisture conditions (amc)...
+
+    Args:
+        cn_II (int|float|ArrayLike): curve number under normal condition
+        amc (str): Antecedent moisture condition.
+            Options: 'dry'|'I', 'wet'|'III' or 'normal'|'II'
+
+    Raises:
+        RuntimeError: If amc is different than 'dry', 'I', 'wet', 'III' or
+            'normal', 'II'. 
+
+    Returns:
+        (float): adjusted curve number for given AMC
 
     Reference:
         Ven Te Chow (1988), Applied Hydrology. MCGrow-Hill
         Soil Conservation Service, Urban hydrology for small watersheds,
         tech. re/. No. 55, U. S. Dept. of Agriculture, Washington, D.E:., 1975.
-
-    Args:
-        cn_II (float): curve number under normal condition
-        amc (str): Antecedent moisture condition.
-            Options: 'dry', 'wet' or 'normal'
-
-    Raises:
-        RuntimeError: If amc is different than 'dry', 'wet' or 'normal'
-
-    Returns:
-        cn_I or cn_III (float): _description_
     """
     if (amc == 'dry') or (amc == 'I'):
         cn_I = 4.2*cn_II/(10-0.058*cn_II)
@@ -47,12 +51,13 @@ def cn_correction(cn_II, amc):
         raise RuntimeError(text)
 
 
-def SCS_MaximumRetention(cn, cfactor=25.4):
+def SCS_MaximumRetention(cn: Union[int, float, ArrayLike],
+                         cfactor: float = 25.4) -> Union[float, ArrayLike]:
     """
-    Simple function for the SCS maximum potential retention of the soil
+    Calculate SCS soil maximum potential retention.
 
     Args:
-        cn (float): Curve number (dimensionless)
+        cn (int|float|ArrayLike): Curve number (dimensionless)
         cfactor (float): Unit conversion factor.
             cfactor = 1 --> inches
             cfactor = 25.4 --> milimeters
@@ -64,7 +69,11 @@ def SCS_MaximumRetention(cn, cfactor=25.4):
     return cfactor*S
 
 
-def SCS_EquivalentCurveNumber(pr, pr_eff, r=0.2, cfactor=25.4):
+def SCS_EquivalentCurveNumber(pr: Union[int, float, ArrayLike],
+                              pr_eff: Union[int, float, ArrayLike],
+                              r: float = 0.2,
+                              cfactor: float = 25.4
+                              ) -> Union[float, ArrayLike]:
     """
     Given a rainfall ammount and the related effective precipitation (surface
     runoff) observed, this function computes the equivalent curve number of the
@@ -95,64 +104,68 @@ def SCS_EquivalentCurveNumber(pr, pr_eff, r=0.2, cfactor=25.4):
     return CN_eq
 
 
-def SCS_EffectiveRainfall(pr, cn, r=0.2, weights=None, **kwargs):
+def SCS_EffectiveRainfall(pr: Union[int, float, ArrayLike],
+                          cn: Union[int, float, ArrayLike],
+                          r: float = 0.2,
+                          **kwargs: float) -> Union[float, ArrayLike]:
     """
-    SCS formula for overall effective precipitation/runoff. Function
-    adapted to work for scalar inputs or array_like inputs. If you give
-    weights the program will try to compute the curvenumber-weighted 
-    runoff. If not the program will compute runoff with the user cn and pr. 
-    If pr and cn are arrays they must have the same size for index-wise
-    computations.  
+    SCS formula for effective precipitation/runoff.
 
     Args:
-        pr (1D array_like or float): Precipitation in mm
-        cn (1D array_like or float): Curve Number
-        r (float, optional): Fraction of the maximum potential retention
-            used on the initial abstraction calculation. Defaults to 0.2.
-        weights (array_like or None). If curve number is an array of values this
-            attribute expects an array of the same size with areal weights for
-            the precipitation computation. Defaults to None.
-        **kwargs are passed to SCS_MaximumRetention function
+        pr (float|array): Precipitation depth [mm]
+        cn (float|array): Curve Number [-]
+        r (float): Initial abstraction ratio, default 0.2
 
     Returns:
-        (array_like): Effective precipitation (Precipitation - Infiltration)
+        float|array: Effective rainfall depth [mm]
+
+    Examples:
+        >>> SCS_EffectiveRainfall(50, 80)
+        22.89
+        >>> SCS_EffectiveRainfall([10,20,30], 75)
+        array([0., 2.45, 8.67])
     """
-    if np.isscalar(pr):
-        return SCS_EffectiveRainfall(np.array([pr]), cn, r, weights, **kwargs)
+    def _scalar(pr: Union[int, float],
+                cn: Union[int, float],
+                r: float = 0.2,
+                **kwargs: float) -> Union[float]:
+        """
+        Core SCS calculation for scalar inputs
 
-    if isinstance(pr, pd.Series) or isinstance(pr, pd.DataFrame):
-        pr = pr.values
+        Raises:
+            ValueError: If pr is not positive
+            ValueError: If CN is not between 0 and 100
+            ValueError: If r is not positive
 
-    if np.isscalar(cn):
-        cn = np.full(pr.shape, cn)
-        return SCS_EffectiveRainfall(pr, cn, r, weights, **kwargs)
-
-    if (type(weights) != type(None)):
-        weights = np.stack([weights]*len(pr))
+        Returns:
+            float: Effective rainfall depth [mm]
+        """
+        if np.isnan(pr) or np.isnan(cn):
+            return np.nan
+        if pr < 0:
+            raise ValueError("Precipitation must be positive")
+        if not 0 <= cn <= 100:
+            raise ValueError("CN must be between 0 and 100")
+        if r <= 0:
+            raise ValueError("Initial abstraction ratio must be positive")
         S = SCS_MaximumRetention(cn, **kwargs)
-        S = np.stack([S]*len(pr)).T
         Ia = r*S
+        if pr <= Ia:
+            pr_eff = 0
+        else:
+            pr_eff = (pr-Ia)**2/(pr-Ia+S)
+        return pr_eff
 
-        pr = np.stack([pr]*len(cn))
-        pr_eff = (pr-Ia)**2/(pr-Ia+S)
-        # pr_eff = np.where(pr<=Ia, 0, pr_eff)
-        pr_eff[pr <= Ia] = 0
-        pr_eff = np.stack(weights*pr_eff.T).sum(axis=-1)
-    elif (cn.shape == pr.shape):
-        S = SCS_MaximumRetention(cn, **kwargs)
-        Ia = r*S
-        pr_eff = (pr-Ia)**2/(pr-Ia+S)
-        # pr_eff = np.where(pr<=Ia, 0, pr_eff)
-        pr_eff[pr <= Ia] = 0
+    if np.isscalar(pr) and np.isscalar(cn):
+        return _scalar(pr, cn, r, **kwargs)
     else:
-        text = 'pr and cn must have the same size for index-wise computation.'
-        text = text+' If not you must give weights so the program can compute '
-        text = text+'the curvenumber-weighted average.'
-        raise RuntimeError(text)
-    return pr_eff
+        return np.vectorize(_scalar, otypes=[float])(pr, cn, r, **kwargs)
 
 
-def SCS_Abstractions(pr, cn, r=0.2, weights=None, **kwargs):
+def SCS_Abstractions(pr: Union[int, float, ArrayLike],
+                     cn: Union[int, float, ArrayLike],
+                     r: float = 0.2,
+                     **kwargs: float) -> Union[float, ArrayLike]:
     """
     SCS formula for overall water losses due to infiltration/abstraction.
     Losses are computed simply as total precipitation - total runoff. 
@@ -162,15 +175,12 @@ def SCS_Abstractions(pr, cn, r=0.2, weights=None, **kwargs):
         cn (array_like or float): Curve Number
         r (float, optional): Fraction of the maximum potential retention
             Defaults to 0.2.
-        weights (array_like or None). If curve number is an array of values this
-            attribute expects an array of the same size with weights for
-            the precipitation computation. Defaults to None.
         **kwargs are passed to SCS_MaximumRetention function
 
 
     Returns:
         (array_like): Losses/Abstraction/Infiltration
     """
-    pr_eff = SCS_EffectiveRainfall(pr, cn, r=r, weights=weights, **kwargs)
+    pr_eff = SCS_EffectiveRainfall(pr, cn, r=r, **kwargs)
     Losses = pr-pr_eff
     return Losses
