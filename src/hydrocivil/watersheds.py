@@ -90,90 +90,88 @@ class RiverBasin(object):
         -> whsed.UnitHydro.convolve(rainfall)
     """
 
-    def _tests(self,
-               basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
-               rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame],
-               dem: xr.DataArray,
-               cn: xr.DataArray) -> None:
-        """
-        Args:
-            basin (GeoDataFrame): Basin polygon
-            rivers (GeoDataFrame): River network lines
-            dem (xarray.DataArray): Digital elevation model raster
-            cn (xarray.DataArray): Curve number raster
-        Raises:
-            RuntimeError: If any dataset isnt in a projected (UTM) crs.
-        """
-        prj_error = '{} must be in a projected (UTM) crs !'
-        if not basin.crs.is_projected:
-            error = prj_error.format('Watershed geometry')
-            raise RuntimeError(error)
-        if not rivers.crs.is_projected:
-            error = prj_error.format('Rivers geometry')
-            raise RuntimeError(error)
-        if not dem.rio.crs.is_projected:
-            error = prj_error.format('DEM raster')
-            raise RuntimeError(error)
-        if not cn.rio.crs.is_projected:
-            error = prj_error.format('Curve Number raster')
-            raise RuntimeError(error)
+    # def _tests(self,
+    #            basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+    #            rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+    #            dem: xr.DataArray,
+    #            cn: xr.DataArray) -> None:
+    #     """
+    #     Args:
+    #         basin (GeoDataFrame): Basin polygon
+    #         rivers (GeoDataFrame): River network lines
+    #         dem (xarray.DataArray): Digital elevation model raster
+    #         cn (xarray.DataArray): Curve number raster
+    #     Raises:
+    #         RuntimeError: If any dataset isnt in a projected (UTM) crs.
+    #     """
+    #     prj_error = '{} must be in a projected (UTM) crs !'
+    #     if not basin.crs.is_projected:
+    #         error = prj_error.format('Watershed geometry')
+    #         raise RuntimeError(error)
+    #     if not rivers.crs.is_projected:
+    #         error = prj_error.format('Rivers geometry')
+    #         raise RuntimeError(error)
+    #     if not dem.rio.crs.is_projected:
+    #         error = prj_error.format('DEM raster')
+    #         raise RuntimeError(error)
+    #     if not cn.rio.crs.is_projected:
+    #         error = prj_error.format('Curve Number raster')
+    #         raise RuntimeError(error)
 
     def __init__(self, fid: Union[str, int, float],
                  basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
-                 rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame],
                  dem: xr.DataArray,
-                 cn: Union[xr.DataArray, None] = None,
-                 amc: Optional[str] = 'II') -> None:
+                 rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame] = None,
+                 cn: xr.DataArray = None,
+                 amc: str = 'II') -> None:
         """
-        Drainage Basin class constructor
+        This class represents a river basin with associated geographical and
+        hydrological data.  It initializes the basin with various attributes
+        such as basin identifier, watershed polygon, digital elevation model
+        (DEM), river network segments, curve number raster, and antecedent
+        moisture condition (AMC).
 
         Args:
-            fid (str): Basin identifier
-            basin (GeoDataFrame): Watershed polygon
-            rivers (GeoDataFrame): River network segments
-            dem (xarray.DataArray): Digital elevation model
-            cn (xarray.DataArray): Curve Number raster.
-                Defaults to None which leads to a full NaN curve number raster
-            amc (str): Antecedent moisture condition. Defaults to 'II'. 
-            Options: 'dry' or 'I',
-                     'normal' or 'II'
-                     'wet' or 'III'
-
-        Raises:
-            RuntimeError: If any of the given spatial data isnt in a projected
-                cartographic projection.
+            basin (Union[gpd.GeoSeries, gpd.GeoDataFrame]): Watershed polygon
+            dem (xr.DataArray): Digital elevation model
+            rivers (Union[gpd.GeoSeries, gpd.GeoDataFrame], optional):
+                River network segments. Defaults to None.
+            cn (xr.DataArray, optional): Curve Number raster. Defaults to None,
+                which leads to an empty curve number raster.
+            amc (str, optional): Antecedent moisture condition.
+                Defaults to 'II'. Options: - 'dry' or 'I',
+                                           - 'normal' or 'II',
+                                           - 'wet' or 'III'.
         """
         # ID
         self.fid = fid
 
         # Vectors
         self.basin = basin.copy()
-        self.rivers = rivers.copy()
-        self.rivers_main = pd.Series([])
+        if rivers is None:
+            self.rivers = gpd.GeoDataFrame()
+        else:
+            self.rivers = rivers.copy()
 
-        # Terrain
+        # Rasters
         self.dem = dem.rio.write_nodata(-9999).squeeze().copy()
         self.dem = self.dem.to_dataset(name='elevation')
         self.dem.encoding = dem.encoding
 
-        # Curve Number
-        self.amc = amc
-        if type(cn) != type(None):
+        if cn is not None:
             self.cn = cn.rio.write_nodata(-9999).squeeze().copy()
             self.cn = cn_correction(self.cn, amc=amc)
             self.cn_counts = pd.DataFrame([])
         else:
-            self.cn = dem.squeeze()*np.nan
+            self.cn = xr.DataArray([], dims=dem.dims, coords=dem.coords)
 
         # Properties
         self.params = pd.DataFrame([], index=[self.fid], dtype=object)
-        self.hypsometric_curve = pd.Series([])
+        self.hypsometric_curve = pd.Series(dtype=object)
+        self.amc = amc
 
         # UnitHydrograph
         self.UnitHydro = None
-
-        # Tests
-        self._tests(self.basin, self.rivers, self.dem, self.cn)
 
     def __repr__(self) -> str:
         """
@@ -248,10 +246,12 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            cond1 = 'outlet_x' not in self.basin.columns
-            cond2 = 'outlet_y' not in self.basin.columns
-            if cond1 or cond2:
-                outlet_y, outlet_x = self.get_basin_outlet(n=n)
+            c1 = 'outlet_x' not in self.basin.columns
+            c2 = 'outlet_y' not in self.basin.columns
+            c3 = self.basin['outlet_x'].item() is None
+            c4 = self.basin['outlet_y'].item() is None
+            if c1 or c2 or c3 or c4:
+                outlet_y, outlet_x = self._get_basinoutlet(n=n)
 
             geo_params = basin_geographical_params(self.fid, self.basin,
                                                    **kwargs)
@@ -261,7 +261,7 @@ class RiverBasin(object):
         self.params = pd.concat([self.params, geo_params], axis=1)
         return self
 
-    def _processdem(self, gdalpreprocess: bool = True) -> Type['RiverBasin']:
+    def _processdem(self, preprocess: bool = True) -> Type['RiverBasin']:
         """
         Compute hypsometric curve, slope and aspect. Then compute DEM
         derived propeties for the basin and save in the params dataframe.
@@ -270,7 +270,7 @@ class RiverBasin(object):
             self: updated class
         """
         try:
-            if gdalpreprocess:
+            if preprocess:
                 curve = self.get_hypsometric_curve()
                 slope = self._process_gdaldem('slope', slopeFormat='percent')
                 aspect = self._process_gdaldem('aspect')
@@ -374,7 +374,7 @@ class RiverBasin(object):
         self.params.loc[index, :] = value
         return self
 
-    def get_basin_outlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
         """
         This function computes the basin outlet point defined as the
         point of minimum elevation along the basin boundary.
