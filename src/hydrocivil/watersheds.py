@@ -90,34 +90,6 @@ class RiverBasin(object):
         -> whsed.UnitHydro.convolve(rainfall)
     """
 
-    # def _tests(self,
-    #            basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
-    #            rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame],
-    #            dem: xr.DataArray,
-    #            cn: xr.DataArray) -> None:
-    #     """
-    #     Args:
-    #         basin (GeoDataFrame): Basin polygon
-    #         rivers (GeoDataFrame): River network lines
-    #         dem (xarray.DataArray): Digital elevation model raster
-    #         cn (xarray.DataArray): Curve number raster
-    #     Raises:
-    #         RuntimeError: If any dataset isnt in a projected (UTM) crs.
-    #     """
-    #     prj_error = '{} must be in a projected (UTM) crs !'
-    #     if not basin.crs.is_projected:
-    #         error = prj_error.format('Watershed geometry')
-    #         raise RuntimeError(error)
-    #     if not rivers.crs.is_projected:
-    #         error = prj_error.format('Rivers geometry')
-    #         raise RuntimeError(error)
-    #     if not dem.rio.crs.is_projected:
-    #         error = prj_error.format('DEM raster')
-    #         raise RuntimeError(error)
-    #     if not cn.rio.crs.is_projected:
-    #         error = prj_error.format('Curve Number raster')
-    #         raise RuntimeError(error)
-
     def __init__(self, fid: Union[str, int, float],
                  basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
                  dem: xr.DataArray,
@@ -148,29 +120,31 @@ class RiverBasin(object):
 
         # Vectors
         self.basin = basin.copy()
-        if rivers is None:
-            self.rivers = gpd.GeoDataFrame()
-        else:
+        self.mask_vector = basin.copy()
+        if rivers is not None:
             self.rivers = rivers.copy()
+        else:
+            self.rivers = rivers
 
         # Rasters
         self.dem = dem.rio.write_nodata(-9999).squeeze().copy()
         self.dem = self.dem.to_dataset(name='elevation')
         self.dem.encoding = dem.encoding
+        self.mask_raster = ~np.isnan(dem)
+        self.mask_raster.name = 'mask'
 
         if cn is not None:
             self.cn = cn.rio.write_nodata(-9999).squeeze().copy()
             self.cn = cn_correction(self.cn, amc=amc)
             self.cn_counts = pd.DataFrame([])
+            self.amc = amc
         else:
-            self.cn = xr.DataArray([], dims=dem.dims, coords=dem.coords)
+            self.cn = cn
 
         # Properties
         self.params = pd.DataFrame([], index=[self.fid], dtype=object)
-        self.hypsometric_curve = pd.Series(dtype=object)
-        self.amc = amc
-
-        # UnitHydrograph
+        self.hypsometric_curve = pd.Series(dtype=float)
+        self.exposure_distribution = pd.Series(dtype=float)
         self.UnitHydro = None
 
     def __repr__(self) -> str:
@@ -191,12 +165,6 @@ class RiverBasin(object):
         text = f'RiverBasin: {self.fid}\nUnitHydro: {uh_text}\n'
         text = text+f'Parameters: {param_text}'
         return text
-
-    def copy(self) -> Type['RiverBasin']:
-        """
-        Create a deep copy of the class itself
-        """
-        return pycopy.deepcopy(self)
 
     def _process_gdaldem(self, varname: str, **kwargs: Any) -> xr.Dataset:
         """
@@ -248,10 +216,13 @@ class RiverBasin(object):
         try:
             c1 = 'outlet_x' not in self.basin.columns
             c2 = 'outlet_y' not in self.basin.columns
-            c3 = self.basin['outlet_x'].item() is None
-            c4 = self.basin['outlet_y'].item() is None
-            if c1 or c2 or c3 or c4:
+            if c1 or c2:
                 outlet_y, outlet_x = self._get_basinoutlet(n=n)
+            else:
+                c3 = self.basin['outlet_x'].item() is None
+                c4 = self.basin['outlet_y'].item() is None
+                if c3 or c4:
+                    outlet_y, outlet_x = self._get_basinoutlet(n=n)
 
             geo_params = basin_geographical_params(self.fid, self.basin,
                                                    **kwargs)
@@ -286,6 +257,8 @@ class RiverBasin(object):
                 }
             # DEM derived params
             terrain_params = basin_terrain_params(self.fid, self.dem)
+            exp = terrain_params.T.index.map(lambda x: 'exposure' in x)
+            self.exposure_distribution = terrain_params.T[exp]
         except Exception as e:
             terrain_params = pd.DataFrame([], index=[self.fid])
             warnings.warn('PostProcess DEM Error:', e, self.fid)
@@ -363,17 +336,6 @@ class RiverBasin(object):
             warnings.warn('Raster counting Error:', e, self.fid)
         return counts
 
-    def set_parameter(self, index: str, value: Any) -> Type['RiverBasin']:
-        """
-        Simple function to add or fix a parameter to the basin parameters table
-
-        Args:
-            index (str): parameter name/id or what to put in the table index
-            value (Any): value of the new parameter
-        """
-        self.params.loc[index, :] = value
-        return self
-
     def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
         """
         This function computes the basin outlet point defined as the
@@ -391,6 +353,23 @@ class RiverBasin(object):
         self.basin['outlet_x'] = outlet_x
         self.basin['outlet_y'] = outlet_y
         return (outlet_y, outlet_x)
+
+    def copy(self) -> Type['RiverBasin']:
+        """
+        Create a deep copy of the class itself
+        """
+        return pycopy.deepcopy(self)
+
+    def set_parameter(self, index: str, value: Any) -> Type['RiverBasin']:
+        """
+        Simple function to add or fix a parameter to the basin parameters table
+
+        Args:
+            index (str): parameter name/id or what to put in the table index
+            value (Any): value of the new parameter
+        """
+        self.params.loc[index, :] = value
+        return self
 
     def get_hypsometric_curve(self, bins: Union[str, int, float] = 'auto',
                               **kwargs: Any) -> pd.Series:
@@ -412,7 +391,7 @@ class RiverBasin(object):
                 elevation.
         """
         curve = raster_distribution(self.dem.elevation, bins=bins, **kwargs)
-        self.hypsometric_curve = curve.cumsum()
+        self.hypsometric_curve = curve.cumsum().drop_duplicates()
         return curve
 
     def area_below_height(self, height: Union[int, float], **kwargs: Any
@@ -514,7 +493,7 @@ class RiverBasin(object):
             self: updated class
         """
         if self.params.shape != (1, 0):
-            self.params = pd.DataFrame([], index=[self.fid])
+            self.params = pd.DataFrame([], index=[self.fid], dtype=object)
 
         # Geographical parameters
         self._processgeography(**geography_kwargs)
@@ -523,10 +502,14 @@ class RiverBasin(object):
         self._processdem(**dem_kwargs)
 
         # Flow derived params
-        self._processrivers(**river_network_kwargs)
+        if self.rivers is not None:
+            self._processrivers(**river_network_kwargs)
 
         # Curve number process
-        self.params['curvenumber'] = self.cn.mean().item()
+        if self.cn is not None:
+            self.params['curvenumber'] = self.cn.mean().item()
+
+        # Reorder
         self.params = self.params.T.astype(object)
 
         return self
@@ -546,8 +529,6 @@ class RiverBasin(object):
                 system (CRS) as the watershed data.
             **kwargs (Any): Additional keyword arguments to pass to
                 self.compute_params() method.
-            dem_kwargs (dict, optional): Dictionary of keyword arguments for
-                DEM processing. If provided, preprocess will be set to False.
         Returns:
             self: A new RiverBasin object containing the clipped data and
                 updated parameters.
@@ -557,63 +538,93 @@ class RiverBasin(object):
             - All geomorphometric parameters are recomputed for the clipped
               area
         """
-        polygon = polygon.dissolve()
-        nbasin = self.basin.copy().clip(polygon)
-        nrivers = self.rivers.copy().clip(polygon)
-        ndem = self.dem.copy().rio.clip(polygon.geometry)
-        ncn = self.cn.copy().rio.clip(polygon.geometry)
-
-        ndem = ndem.where(ndem != -9999)
-        ncn = ncn.where(ncn != -9999)
-
         nwshed = self.copy()
-        nwshed.basin = nbasin
-        nwshed.rivers = nrivers
-        nwshed.dem = ndem
-        nwshed.cn = ncn
+        polygon = polygon.dissolve()
 
-        if 'dem_kwargs' in kwargs.keys():
-            kwargs['dem_kwargs']['preprocess'] = False
-        else:
-            kwargs['dem_kwargs'] = {'preprocess': False}
+        # Basin
+        nbasin = self.basin.copy().clip(polygon)
+        nwshed.basin = nbasin
+        nwshed.mask_vector = nbasin
+
+        # DEM & mask
+        ndem = self.dem.copy().rio.clip(polygon.geometry)
+        ndem = ndem.where(ndem != -9999)
+        ndem = ndem.reindex({'y': self.dem.y, 'x': self.dem.x})
+        nmask = ~np.isnan(ndem.elevation)
+        nmask.name = 'mask'
+        nwshed.dem = ndem
+        nwshed.mask_raster = nmask
+
+        # Rivers
+        if self.rivers is not None:
+            nrivers = self.rivers.copy().clip(polygon)
+            nwshed.rivers = nrivers
+
+        # Curve Number
+        if self.cn is not None:
+            ncn = self.cn.copy().rio.clip(polygon.geometry)
+            ncn = ncn.where(ncn != -9999)
+            ncn = ncn.reindex({'y': self.cn.y, 'x': self.cn.x})
+            nwshed.cn = ncn
+
         nwshed.compute_params(**kwargs)
         return nwshed
 
-    def update_snowline(self, snowline: Union[int, float],
-                        polygonize_kwargs: dict = {},
-                        **kwargs: Any) -> Type['RiverBasin']:
+    def update_snowlimit(self, snowlimit: Union[int, float],
+                         polygonize_kwargs: dict = {},
+                         **kwargs: Any) -> Type['RiverBasin']:
         """
         Updates the RiverBasin object to represent only the pluvial (rain-fed) 
-        portion of the watershed below a given snowline elevation.
+        portion of the watershed below a given snowlimit elevation.
 
-        This method clips the basin to areas below the specified snowline 
+        This method clips the basin to areas below the specified snowlimit 
         elevation threshold. The resulting watershed represents only the
         portion of the basin that receives precipitation as rainfall rather
         than snow. All watershed properties (area, rivers, DEM, etc.) are
         updated accordingly.
 
         Args:
-            snowline (int|float): Elevation threshold in same units as DEM that 
+            snowlimit (int|float): Elevation threshold in same units as DEM that 
                 defines the rain/snow transition zone
+                object with the new clipped one. Defaults to False which leads
+                to update only the parameter table and basin masks.
             polygonize_kwargs (dict, optional): Additional keyword arguments 
                 passed to the polygonize function. Defaults to {}.
             **kwargs: Additional keyword arguments passed to the clip method
 
         Raises:
-            TypeError: If snowline argument is not numeric
-            ValueError: If snowline elevation is below minimum basin elevation
+            TypeError: If snowlimit argument is not numeric
 
         Returns:
             RiverBasin: A new RiverBasin object containing only the pluvial
-                portion of the original watershed below the snowline
+                portion of the original watershed below the snowlimit
         """
-        if not isinstance(snowline, (int, float)):
-            raise TypeError("Snowline must be numeric")
+        if not isinstance(snowlimit, (int, float)):
+            raise TypeError("snowlimit must be numeric")
         min_elev = self.dem.elevation.min().item()
-        if snowline < min_elev:
-            raise ValueError(f"Snowline {snowline} below hmin {min_elev}")
-        nshp = polygonize(self.dem.elevation < snowline, **polygonize_kwargs)
-        return self.clip(nshp, **kwargs)
+        max_elev = self.dem.elevation.max().item()
+        if snowlimit < min_elev:
+            warnings.warn(f"snowlimit: {snowlimit} below hmin: {min_elev}")
+            self.params = self.params*0
+            self.mask_raster = xr.DataArray(np.full(self.mask_raster.shape,
+                                                    False),
+                                            dims=self.mask_raster.dims,
+                                            coords=self.mask_raster.coords)
+            self.mask_vector = gpd.GeoDataFrame()
+            return self
+        elif snowlimit > max_elev:
+            warnings.warn(f"snowlimit: {snowlimit} above hmax: {max_elev}")
+            return self
+        else:
+            if self.params.loc['area'].item() == 0:
+                self.compute_params()
+            nshp = polygonize(self.dem.elevation <= snowlimit,
+                              **polygonize_kwargs)
+            nwshed = self.clip(nshp, **kwargs)
+            self.params = nwshed.params
+            self.mask_raster = nwshed.mask_raster
+            self.mask_vector = nwshed.mask_vector
+            return self
 
     def SynthUnitHydro(self, method: str, ChileParams: bool = False,
                        **kwargs: Any) -> Type['RiverBasin']:
@@ -681,7 +692,8 @@ class RiverBasin(object):
              basin_kwargs: dict = {'edgecolor': 'k'},
              demimg_kwargs: dict = {'cbar_kwargs': {'label': '(m)',
                                                     'shrink': 0.8}},
-             demhist_kwargs: dict = {'density': True, 'alpha': 0.5},
+             mask_kwargs: dict = {'hatches': ['////']},
+             demhist_kwargs: dict = {'alpha': 0.5},
              hypsometric_kwargs: dict = {'color': 'darkblue'},
              rivers_kwargs: dict = {'color': 'tab:red'},
              kwargs: dict = {'figsize': (12, 5)}) -> matplotlib.axes.Axes:
@@ -703,8 +715,10 @@ class RiverBasin(object):
                 Defaults to {'edgecolor': 'k'}.
             demimg_kwargs (dict, optional): Arguments for DEM image display.
                 Defaults to {'cbar_kwargs': {'label': '(m)', 'shrink': 0.8}}.
+            mask_kwargs  (dict, optional): Arguments for mask hatches.
+                Defaults to {'hatches': ['////']}.
             demhist_kwargs (dict, optional): Arguments for elevation histogram.
-                Defaults to {'density': True, 'alpha': 0.5}.
+                Defaults to {'alpha': 0.5}.
             hypsometric_kwargs (dict, optional): Styling for hypsometric curve.
                 Defaults to {'color': 'darkblue'}.
             rivers_kwargs (dict, optional): Styling for river network.
@@ -730,11 +744,24 @@ class RiverBasin(object):
         # Plot dem data
         try:
             self.dem.elevation.plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
-            self.dem.elevation.plot.hist(ax=ax3, zorder=0, **demhist_kwargs)
             if len(self.hypsometric_curve) == 0:
                 self.get_hypsometric_curve()
-            self.hypsometric_curve.plot(ax=ax2, zorder=1, label='Hypsometry',
-                                        **hypsometric_kwargs)
+            hypso = self.hypsometric_curve
+            hypso.plot(ax=ax2, zorder=1, label='Hypsometry',
+                       **hypsometric_kwargs)
+            ax3.plot(hypso.index, hypso.diff(), zorder=0, **demhist_kwargs)
+        except Exception as e:
+            warnings.warn(e)
+
+        # Plot snow area mask
+        try:
+            mask = self.mask_raster
+            nanmask = self.dem.elevation.isnull()
+            if (~nanmask).sum().item() != mask.sum().item():
+                mask.where(~nanmask).where(~mask).plot.contourf(
+                    ax=ax0, zorder=1, colors=None, alpha=0, add_colorbar=False,
+                    **mask_kwargs)
+                ax0.plot([], [], label='Snowy Area', color='k')
         except Exception as e:
             warnings.warn(e)
 
@@ -747,12 +774,12 @@ class RiverBasin(object):
             warnings.warn(e)
 
         if len(self.rivers_main) > 0:
-            self.rivers_main.plot(ax=ax0, label='Main River',
+            self.rivers_main.plot(ax=ax0, label='Main River', zorder=2,
                                   **rivers_kwargs)
 
         # Plot basin exposition
         if len(self.params.index) > 1:
-            exp = self.params[self.params.index.map(lambda x: 'exposure' in x)]
+            exp = self.exposure_distribution
             exp.index = exp.index.map(lambda x: x.split('_')[0])
             exp = exp.loc[['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']]
             exp = pd.concat([exp.iloc[:, 0], exp.iloc[:, 0][:'N']])
@@ -777,7 +804,9 @@ class RiverBasin(object):
 
             ax2.grid(True, ls=":")
             ax2.set_ylim(0, 1)
+            ax3.set_ylim(0, ax3.get_ylim()[-1])
             ax2.set_xlabel('(m)')
+
         except Exception as e:
             warnings.warn(e)
         return fig, (ax0, ax1, ax2, ax3)
