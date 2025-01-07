@@ -745,6 +745,18 @@ class RiverBasin(object):
         ax2 = fig.add_subplot(224)
         ax3 = ax2.twinx()
 
+        # Plot basin and rivers
+        try:
+            self.basin.boundary.plot(ax=ax0, zorder=2, **basin_kwargs)
+            ax0.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
+                        label='Outlet', zorder=3, **outlet_kwargs)
+        except Exception as e:
+            warnings.warn(e)
+
+        if len(self.rivers_main) > 0:
+            self.rivers_main.plot(ax=ax0, label='Main River', zorder=2,
+                                  **rivers_kwargs)
+
         # Plot dem data
         try:
             self.dem.elevation.plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
@@ -769,18 +781,6 @@ class RiverBasin(object):
         except Exception as e:
             warnings.warn(e)
 
-        # Plot basin and rivers
-        try:
-            self.basin.boundary.plot(ax=ax0, zorder=2, **basin_kwargs)
-            ax0.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
-                        label='Outlet', zorder=3, **outlet_kwargs)
-        except Exception as e:
-            warnings.warn(e)
-
-        if len(self.rivers_main) > 0:
-            self.rivers_main.plot(ax=ax0, label='Main River', zorder=2,
-                                  **rivers_kwargs)
-
         # Plot basin exposition
         if len(self.params.index) > 1:
             exp = self.exposure_distribution
@@ -799,7 +799,9 @@ class RiverBasin(object):
                 axis.set_title('')
                 if axis in [ax0, ax2]:
                     axis.legend(**legend_kwargs)
-
+            bounds = self.basin.minimum_bounding_circle().bounds
+            ax0.set_xlim(bounds.minx.item(), bounds.maxx.item())
+            ax0.set_ylim(bounds.miny.item(), bounds.maxy.item())
             ax1.set_theta_zero_location("N")
             ax1.set_theta_direction(-1)
             ax1.set_xticks(ax1.get_xticks())
