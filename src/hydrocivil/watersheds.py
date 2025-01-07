@@ -590,7 +590,8 @@ class RiverBasin(object):
                 to update only the parameter table and basin masks.
             polygonize_kwargs (dict, optional): Additional keyword arguments 
                 passed to the polygonize function. Defaults to {}.
-            **kwargs: Additional keyword arguments passed to the clip method
+            **kwargs: Additional keyword arguments passed to the compute_params
+                method
 
         Raises:
             TypeError: If snowlimit argument is not numeric
@@ -614,6 +615,9 @@ class RiverBasin(object):
             return self
         elif snowlimit > max_elev:
             warnings.warn(f"snowlimit: {snowlimit} above hmax: {max_elev}")
+            self.compute_params(**kwargs)
+            self.mask_vector = self.basin
+            self.mask_raster = ~self.dem.elevation.isnull()
             return self
         else:
             if self.params.loc['area'].item() == 0:
