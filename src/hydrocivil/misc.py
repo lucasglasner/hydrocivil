@@ -273,6 +273,29 @@ def load_steep_data() -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame,
     return (basin, rivers, dem, cn)
 
 
+def load_urban_data() -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame,
+                               xr.DataArray, xr.DataArray]:
+    """
+    Load base example data
+    Returns:
+        (tuple): (basin polygon, river network segments, dem, curve_number)
+    """
+    root_folder = os.path.dirname(os.path.abspath(__file__))
+    data_folder = os.path.join(root_folder, 'resources', 'EsteroVDM')
+    basin_path = os.path.join(data_folder, 'EsteroVDM.gpkg')
+    rivers_path = os.path.join(data_folder, 'rnetwork.gpkg')
+    dem_path = os.path.join(data_folder, 'dem.tif')
+    cn_path = os.path.join(data_folder, 'cn.tif')
+
+    basin = gpd.read_file(basin_path)
+    rivers = gpd.read_file(rivers_path)
+    dem = rxr.open_rasterio(dem_path, masked=True).squeeze()
+    cn = rxr.open_rasterio(cn_path, masked=True).squeeze()
+    dem.name = 'elevation'
+    cn.name = 'cn'
+    return (basin, rivers, dem, cn)
+
+
 def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
                                                      gpd.GeoDataFrame,
                                                      xr.DataArray,
@@ -292,6 +315,8 @@ def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
         return load_swampy_data()
     elif kind == 'steep':
         return load_steep_data()
+    elif kind == 'urban':
+        return load_urban_data()
     else:
         text = f"kind = {kind}, expected one of: 'swampy', 'steep', 'urban'"
         raise RuntimeError(text)
