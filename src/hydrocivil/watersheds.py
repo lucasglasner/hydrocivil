@@ -700,6 +700,7 @@ class RiverBasin(object):
              demhist_kwargs: dict = {'alpha': 0.5},
              hypsometric_kwargs: dict = {'color': 'darkblue'},
              rivers_kwargs: dict = {'color': 'tab:red'},
+             exposure_kwargs: dict = {'ec': 'k', 'width': 0.6},
              kwargs: dict = {'figsize': (12, 5)}) -> matplotlib.axes.Axes:
         """
         Create a comprehensive visualization of watershed characteristics
@@ -727,6 +728,8 @@ class RiverBasin(object):
                 Defaults to {'color': 'darkblue'}.
             rivers_kwargs (dict, optional): Styling for river network.
                 Defaults to {'color': 'tab:red'}.
+            exposure_kwargs (dict, optional): Styling for polar exposure plot
+                Defaults to {'ec':'k', 'width':0.5}
             kwargs (dict, optional): Additional figure parameters.
                 Defaults to {'figsize': (12, 5)}.
 
@@ -787,8 +790,8 @@ class RiverBasin(object):
             exp.index = exp.index.map(lambda x: x.split('_')[0])
             exp = exp.loc[['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']]
             exp = pd.concat([exp.iloc[:, 0], exp.iloc[:, 0][:'N']])
-            ax1.plot(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315, 0]), exp,
-                     marker='o', mec='k')
+            ax1.bar(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315, 0]), exp,
+                    **exposure_kwargs)
             ax1.set_xticks(ax1.get_xticks())
             ax1.set_xticklabels(exp.index.values[:-1])
             ax1.set_ylim(0, exp.max()*1.1)
