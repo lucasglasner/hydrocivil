@@ -691,11 +691,11 @@ class RiverBasin(object):
         return self
 
     def plot(self,
+             demvar='elevation',
              legend_kwargs: dict = {'loc': 'upper left'},
              outlet_kwargs: dict = {'ec': 'k', 'color': 'tab:red'},
              basin_kwargs: dict = {'edgecolor': 'k'},
-             demimg_kwargs: dict = {'cbar_kwargs': {'label': '(m)',
-                                                    'shrink': 0.8}},
+             demimg_kwargs: dict = {'cbar_kwargs': {'shrink': 0.8}},
              mask_kwargs: dict = {'hatches': ['////']},
              demhist_kwargs: dict = {'alpha': 0.5},
              hypsometric_kwargs: dict = {'color': 'darkblue'},
@@ -719,7 +719,7 @@ class RiverBasin(object):
             basin_kwargs (dict, optional): Styling for basin boundary.
                 Defaults to {'edgecolor': 'k'}.
             demimg_kwargs (dict, optional): Arguments for DEM image display.
-                Defaults to {'cbar_kwargs': {'label': '(m)', 'shrink': 0.8}}.
+                Defaults to {'cbar_kwargs': {'shrink': 0.8}}.
             mask_kwargs  (dict, optional): Arguments for mask hatches.
                 Defaults to {'hatches': ['////']}.
             demhist_kwargs (dict, optional): Arguments for elevation histogram.
@@ -762,7 +762,7 @@ class RiverBasin(object):
 
         # Plot dem data
         try:
-            self.dem.elevation.plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
+            self.dem[demvar].plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
             if len(self.hypsometric_curve) == 0:
                 self.get_hypsometric_curve()
             hypso = self.hypsometric_curve
