@@ -21,6 +21,7 @@ from . import (
 )
 
 # Direct class imports
+from .global_vars import _has_whitebox
 from .watersheds import RiverBasin
 from .rain import RainStorm
 from .unithydrographs import LumpedUnitHydrograph
@@ -28,9 +29,12 @@ from .unithydrographs import LumpedUnitHydrograph
 # Utilities
 from . import (
     misc,
-    web,
-    wb_tools,
+    web
 )
+
+if _has_whitebox:
+    from . import wb_tools
+
 
 __version__ = "0.7.0"
 __author__ = "Lucas Glasner"

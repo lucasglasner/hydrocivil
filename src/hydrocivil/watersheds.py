@@ -29,10 +29,10 @@ from .unithydrographs import LumpedUnitHydrograph as SUH
 from .geomorphology import get_main_river, basin_outlet
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
-from .global_vars import GDAL_EXCEPTIONS
+from .global_vars import GDAL_EXCEPTIONS, _has_whitebox
 from .abstractions import cn_correction
 from .abstractions import SCS_EffectiveRainfall, SCS_EquivalentCurveNumber
-from .wb_tools import wbDEMpreprocess
+
 
 if GDAL_EXCEPTIONS:
     gdal.UseExceptions()
@@ -512,6 +512,7 @@ class RiverBasin(object):
             self._processrivers(**river_network_kwargs)
         else:
             if preprocess_rivers:
+                from .wb_tools import wbDEMpreprocess
                 flow, rivers = wbDEMpreprocess(self.dem.elevation,
                                                return_streams=True,
                                                **preprocess_rivers_kwargs)

@@ -15,11 +15,7 @@ from typing import Tuple
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon
 import warnings
-
-try:
-    import whitebox_workflows as wbw
-except Exception as e:
-    pass
+import whitebox_workflows as wbw
 
 
 def wbRaster2numpy(obj: wbw.Raster) -> np.ndarray:
