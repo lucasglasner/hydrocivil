@@ -14,9 +14,15 @@ import xarray as xr
 from typing import Any
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon
+import warnings
+
+try:
+    import whitebox_workflows as wbw
+except Exception as e:
+    pass
 
 
-def wbRaster2numpy(obj: Any) -> np.ndarray:
+def wbRaster2numpy(obj: wbw.Raster) -> np.ndarray:
     """
     This function grabs a whitebox_workflows Raster object and return
     the image data as a numpy array
@@ -46,23 +52,31 @@ def wbRaster2numpy(obj: Any) -> np.ndarray:
     return arr
 
 
-def wbRaster2xarray(obj: Any, flip_y: bool = False, flip_x: bool = False
+def wbRaster2xarray(obj: wbw.Raster, exchange_rowcol: bool = False,
+                    flip_y: bool = False, flip_x: bool = False
                     ) -> xr.DataArray:
     """
-    This function grabs a whitebox_workflows Raster object and return
-    the image data as an xarray DataArray
+    This function grabs a whitebox_workflows Raster object and returns
+    the image data as an xarray DataArray.
 
     Args:
         obj (whitebox_workflows.Raster): A whitebox Raster object
+        exchange_rowcol (bool, optional): Whether to flip rows and columns.
+            Defaults to False.
+        flip_y (bool, optional): Whether to flip the y-axis. Defaults to False.
+        flip_x (bool, optional): Whether to flip the x-axis. Defaults to False.
 
     Returns:
-        (xarray.DataArray): data
+        xr.DataArray: The raster data as an xarray DataArray.
     """
     xstart, xend = obj.configs.west, obj.configs.east
     ystart, yend = obj.configs.south, obj.configs.north
-    dx, dy = obj.configs.resolution_x, obj.configs.resolution_y
-    x = np.arange(xstart, xend+dx, dx)
-    y = np.arange(ystart, yend+dy, dy)[::-1]
+    if exchange_rowcol:
+        x = np.linspace(xstart, xend, obj.configs.rows)
+        y = np.linspace(ystart, yend, obj.configs.columns)[::-1]
+    else:
+        x = np.linspace(xstart, xend, obj.configs.columns)
+        y = np.linspace(ystart, yend, obj.configs.rows)[::-1]
 
     if flip_y:
         y = y[::-1]
@@ -81,7 +95,7 @@ def wbRaster2xarray(obj: Any, flip_y: bool = False, flip_x: bool = False
     return da
 
 
-def wbAttributes2DataFrame(obj: Any) -> pd.DataFrame:
+def wbAttributes2DataFrame(obj: wbw.Vector) -> pd.DataFrame:
     """
     This function grabs a whitebox_workflows vector object and recuperates
     the attribute table as a pandas dataframe.
@@ -108,7 +122,7 @@ def wbAttributes2DataFrame(obj: Any) -> pd.DataFrame:
     return df
 
 
-def wbPoint2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
+def wbPoint2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows Point layer to a geopandas
     GeoDataFrame.
@@ -134,7 +148,7 @@ def wbPoint2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     return gdf
 
 
-def wbLine2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
+def wbLine2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows Line layer to a geopandas
     GeoDataFrame.
@@ -182,7 +196,7 @@ def wbLine2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     return gdf
 
 
-def wbPolygon2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
+def wbPolygon2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows Polygon layer to a geopandas
     GeoDataFrame.
@@ -232,7 +246,7 @@ def wbPolygon2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
     return gdf
 
 
-def wbVector2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
+def wbVector2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
     """
     This function transform a whitebox_workflows vector layer to a geopandas
     GeoDataFrame.
@@ -254,3 +268,81 @@ def wbVector2geopandas(obj: Any, crs: str = None) -> gpd.GeoDataFrame:
 
     else:  # Polygon
         return wbPolygon2geopandas(obj, crs=crs)
+
+
+def xarray2wbRasterConfigs(da: xr.DataArray) -> wbw.RasterConfigs:
+    """
+    Generate basic RasterConfigs from an xarray DataArray.
+
+    Args:
+        da (xr.DataArray): Input xarray DataArray containing raster data.
+
+    Returns:
+        wbw.RasterConfigs: Configuration object for creating a new raster.
+    """
+    configs = wbw.RasterConfigs()
+    dtype_dict = {'float32': wbw.RasterDataType.F32,
+                  'float64': wbw.RasterDataType.F64,
+                  'int8': wbw.RasterDataType.I8,
+                  'int16': wbw.RasterDataType.I16,
+                  'int32': wbw.RasterDataType.I32,
+                  'int64': wbw.RasterDataType.I64,
+                  '<U8': wbw.RasterDataType.U8,
+                  '<U16': wbw.RasterDataType.U16,
+                  '<U32': wbw.RasterDataType.U32,
+                  '<U64': wbw.RasterDataType.U64}
+    # Raster shape
+    nrows, ncols = da.shape[0], da.shape[1]
+    configs.rows = nrows
+    configs.columns = ncols
+    bounds = da.rio.bounds()
+    configs.west = bounds[0]
+    configs.east = bounds[2]
+    configs.south = bounds[1]
+    configs.north = bounds[3]
+
+    # Raster resolution
+    dx, dy = da.rio.resolution()
+    configs.resolution_x = abs(dx)
+    configs.resolution_y = abs(dy)
+
+    # Projection
+    try:
+        configs.epsg_code = da.rio.crs.to_epsg()
+        configs.coordinate_ref_system_wkt = da.rio.crs.to_wkt()
+    except Exception as e:
+        warnings.warn(str(e))
+
+    # Units
+    try:
+        configs.xy_units = da.x.units
+    except:
+        try:
+            configs.xy_units = da.y.units
+        except Exception as e:
+            warnings.warn(str(e))
+
+    # No data and dtype
+    configs.nodata = da.rio.nodata
+    configs.data_type = dtype_dict[str(da.dtype)]
+
+    return configs
+
+
+def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
+    """
+    Convert an xarray DataArray to a WhiteboxTools Raster.
+
+    Args:
+        da (xr.DataArray): Input xarray DataArray containing raster data.
+
+    Returns:
+        wbw.Raster: A new raster created from the DataArray.
+    """
+    array = da.values
+    configs = xarray2wbRasterConfigs(da)
+    new_raster = wbw.WbEnvironment().new_raster(configs)
+    for row in range(configs.rows):
+        for col in range(configs.columns):
+            new_raster[row, col] = array[row, col]
+    return new_raster
