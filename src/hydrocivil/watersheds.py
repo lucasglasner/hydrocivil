@@ -32,6 +32,7 @@ from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
 from .global_vars import GDAL_EXCEPTIONS
 from .abstractions import cn_correction
 from .abstractions import SCS_EffectiveRainfall, SCS_EquivalentCurveNumber
+from .wb_tools import wbDEMpreprocess
 
 if GDAL_EXCEPTIONS:
     gdal.UseExceptions()
@@ -123,8 +124,10 @@ class RiverBasin(object):
         self.mask_vector = basin.copy()
         if rivers is not None:
             self.rivers = rivers.copy()
+            self.rivers_main = gpd.GeoDataFrame()
         else:
             self.rivers = rivers
+            self.rivers_main = gpd.GeoDataFrame()
 
         # Rasters
         self.dem = dem.rio.write_nodata(-9999).squeeze().copy()
@@ -228,7 +231,7 @@ class RiverBasin(object):
                                                    **kwargs)
         except Exception as e:
             geo_params = pd.DataFrame([], index=[self.fid])
-            warnings.warn('Geographical Parameters Error:', e, self.fid)
+            warnings.warn('Geographical Parameters Error:'+f'{e}')
         self.params = pd.concat([self.params, geo_params], axis=1)
         return self
 
@@ -261,7 +264,7 @@ class RiverBasin(object):
             self.exposure_distribution = terrain_params.T[exp]
         except Exception as e:
             terrain_params = pd.DataFrame([], index=[self.fid])
-            warnings.warn('PostProcess DEM Error:', e, self.fid)
+            warnings.warn('PostProcess DEM Error:'+f'{e}')
         self.params = pd.concat([self.params, terrain_params], axis=1)
         return self
 
@@ -282,7 +285,7 @@ class RiverBasin(object):
                 mriverlen = np.nan
             self.params['mriverlen'] = mriverlen
         except Exception as e:
-            warnings.warn('Flow derived properties Error:', e, self.fid)
+            warnings.warn('Flow derived properties Error: ' + f'{e}')
         return self
 
     def _processrastercounts(self, raster: xr.DataArray, output_type: int = 1
@@ -333,7 +336,7 @@ class RiverBasin(object):
         except Exception as e:
             counts = pd.DataFrame([], columns=[self.fid],
                                   index=[0])
-            warnings.warn('Raster counting Error:', e, self.fid)
+            warnings.warn('Raster counting Error:'+f'{e}')
         return counts
 
     def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
@@ -465,7 +468,9 @@ class RiverBasin(object):
         self.cn_equivalent = curve
         return curve
 
-    def compute_params(self, dem_kwargs: dict = {},
+    def compute_params(self, preprocess_rivers: bool = False,
+                       preprocess_rivers_kwargs: dict = {},
+                       dem_kwargs: dict = {},
                        geography_kwargs: dict = {},
                        river_network_kwargs: dict = {}) -> Type['RiverBasin']:
         """
@@ -480,15 +485,16 @@ class RiverBasin(object):
                 drainage density and shape factor. 
                 Details in src.geomorphology.main_river
         Args:
-            dem_kwargs (dict, optional): 
-                Additional arguments for the terrain preprocessing function.
-                Defaults to {}.
-            geography_kwargs (dict, optional):
-                Additional arguments for the geography preprocessing routine.
-                Defauts to {}.
-            river_network_kwargs (dict, optional): 
-                Additional arguments for the main river finding routine.
-                Defaults to {}. Details in src.geomorphology.main_river routine
+            preprocess_river_network (bool, optional): Whether to compute 
+                river network from given DEM. Requeries whitebox_workflows
+                package. Defaults to False. 
+            dem_kwargs (dict, optional): Additional arguments for the terrain
+                preprocessing function. Defaults to {}.
+            geography_kwargs (dict, optional): Additional arguments for the
+                geography preprocessing routine. Defauts to {}.
+            river_network_kwargs (dict, optional): Additional arguments for the
+                main river finding routine. Defaults to {}.
+                Details in src.geomorphology.main_river routine
         Returns:
             self: updated class
         """
@@ -504,6 +510,15 @@ class RiverBasin(object):
         # Flow derived params
         if self.rivers is not None:
             self._processrivers(**river_network_kwargs)
+        else:
+            if preprocess_rivers:
+                flow, rivers = wbDEMpreprocess(self.dem.elevation,
+                                               return_streams=True,
+                                               **preprocess_rivers_kwargs)
+                self.dem = xr.merge([self.dem, flow])
+                self.rivers = rivers
+                self._processrivers(**river_network_kwargs)
+                self.params['mriverlen'] = flow.flowlen.max().item()/1e3
 
         # Curve number process
         if self.cn is not None:
@@ -754,7 +769,7 @@ class RiverBasin(object):
             ax0.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
                         label='Outlet', zorder=3, **outlet_kwargs)
         except Exception as e:
-            warnings.warn(e)
+            warnings.warn(str(e))
 
         if len(self.rivers_main) > 0:
             self.rivers_main.plot(ax=ax0, label='Main River', zorder=2,
@@ -770,7 +785,7 @@ class RiverBasin(object):
                        **hypsometric_kwargs)
             ax3.plot(hypso.index, hypso.diff(), zorder=0, **demhist_kwargs)
         except Exception as e:
-            warnings.warn(e)
+            warnings.warn(str(e))
 
         # Plot snow area mask
         try:
@@ -782,7 +797,7 @@ class RiverBasin(object):
                     **mask_kwargs)
                 ax0.plot([], [], label='Snowy Area', color='k')
         except Exception as e:
-            warnings.warn(e)
+            warnings.warn(str(e))
 
         # Plot basin exposition
         if len(self.params.index) > 1:
@@ -817,7 +832,7 @@ class RiverBasin(object):
             ax2.set_xlabel('(m)')
 
         except Exception as e:
-            warnings.warn(e)
+            warnings.warn(str(e))
         return fig, (ax0, ax1, ax2, ax3)
 
 

@@ -313,15 +313,6 @@ def xarray2wbRasterConfigs(da: xr.DataArray) -> wbw.RasterConfigs:
     except Exception as e:
         warnings.warn(str(e))
 
-    # Units
-    try:
-        configs.xy_units = da.x.units
-    except:
-        try:
-            configs.xy_units = da.y.units
-        except Exception as e:
-            warnings.warn(str(e))
-
     # No data and dtype
     configs.nodata = da.rio.nodata
     configs.data_type = dtype_dict[str(da.dtype)]
