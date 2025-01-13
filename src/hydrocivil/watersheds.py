@@ -237,11 +237,14 @@ class RiverBasin(object):
 
     def _processdem(self, preprocess: bool = True) -> Type['RiverBasin']:
         """
-        Compute hypsometric curve, slope and aspect. Then compute DEM
-        derived propeties for the basin and save in the params dataframe.
-
-        Returns:
-            self: updated class
+        Processes the Digital Elevation Model (DEM) to compute the hypsometric
+        curve, slope, and aspect. Then computes DEM-derived properties for the
+        basin and saves them in the params dataframe.
+        Args:
+            preprocess (bool): If True, preprocess the DEM to compute
+                hypsometric curve, slope, and aspect.
+            RiverBasin: The updated class instance with computed
+                DEM properties.
         """
         try:
             if preprocess:
