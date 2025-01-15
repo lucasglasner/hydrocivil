@@ -1,11 +1,11 @@
-'''
+"""
  Author: Lucas Glasner (lgvivanco96@gmail.com)
  Create Time: 2024-08-05 11:11:38
  Modified by: Lucas Glasner,
  Modified time: 2024-08-05 11:11:43
- Description: Main watershed classes
+ Description: Main watershed class
  Dependencies:
-'''
+"""
 
 import os
 import warnings
@@ -43,52 +43,61 @@ else:
 
 class RiverBasin(object):
     """
-    Watershed class used to compute geomorphological properties of basins, 
-    unit hydrographs, flood hydrographs, terrain properties, among other 
-    hydrological methods. 
+    The RiverBasin class represents a hydrological basin and provides methods 
+    to compute various geomorphological, hydrological, and terrain properties. 
+    It integrates geographical data, digital elevation models (DEM), river 
+    networks, and land cover rasters to derive comprehensive watershed 
+    characteristics.
 
-    The class seeks to be a virtual representation of an hydrographic basin, 
-    where given inputs of terrain, river network and land cover are used to 
-    derive basin-wide properties and hydrological computations. 
+    Key Features:
+        - Compute geographical parameters such as centroid coordinates, area, 
+          and basin outlet.
+        - Process DEM to derive hypsometric curves, slope, aspect, and other 
+          terrain properties.
+        - Analyze river networks to determine main river length and other flow 
+          derived properties.
+        - Calculate area distributions of raster properties (e.g., land cover 
+          classes, soil types).
+        - Generate synthetic unit hydrographs using various methods (e.g., SCS, 
+          Gray, Linsley) with optional regional parameters for Chile.
+        - Clip watershed data to specified polygon boundaries and update 
+          geomorphometric parameters.
+        - Update the watershed representation to include only the pluvial 
+          portion below a specified snow limit elevation.
+        - Visualize watershed characteristics including DEM, basin boundary, 
+          rivers, hypsometric curve, and terrain aspect distribution.
 
     Examples:
-        + Compute geomorphometric parameters
+        + Compute geomorphometric parameters:
+            -> wshed = RiverBasin('mybasin', basin, dem, rivers=rivers, cn=cn)
+            -> wshed.compute_params()
 
-        -> import geopandas as gpd
-        -> import rioxarray as rxr
-        -> dem = rxr.open_rasterio('path/to/dem', masked=True)
-        -> cn  = rxr.open_rasterio('path/to/cn', masked=True)
-        -> basin = gpd.read_file('/path/to/basinpolygon')
-        -> rivers = gpd.read_file('/path/to/riversegments/')
+        + Use curve number corrected by a wet/dry condition:
+            -> wshed = RiverBasin('mybasin', basin, dem, rivers, cn, amc='wet')
+            -> wshed.compute_params()
 
-        -> wshed = RiverBasin('mybasin', basin, rivers, dem, cn)
-        -> wshed.compute_params()
+        + Change or add a parameter by hand:
+            -> wshed.set_parameter('curvenumber', 100)
 
-        + Use curve number corrected by a wet/dry condition
-        -> wshed = RiverBasin('mybasin', basin, rivers, dem, cn, amc='wet')
-        -> wshed.compute_params()
+        + Compute or check hypsometric curve:
+            -> curve = wshed.get_hypsometric_curve(bins='auto')
+            -> curve = wshed.hypsometric_curve
 
-        + Change a parameter by hand
-        -> wshed.set_parameter('area', 1000)
+        + Check fraction of area below 1400 meters:
+            -> fArea = wshed.area_below_height(1400)
 
-        + Check hypsometric curve
-        -> curve = wshed.get_hypsometric_curve(bins='auto')
+        + Get relationship of curve number vs precipitation due to basin land 
+          cover heterogeneities:
+            -> cn_curve = wshed.get_equivalent_curvenumber()
 
-        + Check fraction of area below 1400 meters
-        -> fArea = wshed.area_below_height(1400)
+        + Access basin parameters as a pandas DataFrame:
+            -> wshed.params
 
-        + Get relationship of curve number vs precipitation due to basin land
-        + cover heterogeneities. 
-        -> cn_curve = wshed.get_equivalent_curvenumber()
+        + Compute SCS unit hydrograph for rain pulses of 1 hour and prf=484:
+            -> wshed.SynthUnitHydro(method='SCS', timestep=1, prf=484)
 
-        + Access basin params as pandas Data Frame
-        -> wshed.params
-
-        + Compute SCS unit hydrograph for rain pulses of 1 hour
-        -> wshed.SynthUnitHydro(method='SCS', timestep=1)
-
-        + Compute flood hydrograph with a series of rainfall
-        -> whsed.UnitHydro.convolve(rainfall)
+        + Compute flood hydrograph with a series of rainfall:
+            -> flood = wshed.UnitHydro.convolve(rainfall)
     """
 
     def __init__(self, fid: Union[str, int, float],

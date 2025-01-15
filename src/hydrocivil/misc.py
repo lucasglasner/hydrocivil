@@ -44,7 +44,7 @@ def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
     Returns:
         (geopandas.GeoDataFrame): polygonized boolean raster
     """
-    da = da.astype(int)
+    da = da.astype("int32")
     polygons = []
     for s, v in shapes(da, transform=da.rio.transform()):
         if v == 1:
