@@ -386,12 +386,11 @@ def wbDEMpreprocess(dem: xr.DataArray,
 
     # Compute vector streams if asked and return final results
     if return_streams:
-
         w_streams_r = wbe.extract_streams(w_d8flowacc,
                                           flow_accumulation_threshold)
-        w_streams_v0 = wbe.raster_streams_to_vector(w_streams_r, w_d8flowdir)
-        w_streams_v0 = wbe.vector_stream_network_analysis(w_streams_v0, w_dem)
-        streams_v0 = wbVector2geopandas(w_streams_v0[0])
-        return (rasters, streams_v0)
+        w_streams = wbe.raster_streams_to_vector(w_streams_r, w_d8flowdir)
+        w_streams = wbe.vector_stream_network_analysis(w_streams, w_dem)
+        streams = wbVector2geopandas(w_streams[0])
     else:
-        return (rasters, gpd.GeoDataFrame())
+        streams = gpd.GeoDataFrame()
+    return (rasters, streams)
