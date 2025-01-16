@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import scipy.signal as sg
 import geopandas as gpd
-import matplotlib
+import matplotlib.pyplot as plt
 
 from math import gamma
 from typing import Union, Any, Tuple, Type
@@ -510,7 +510,8 @@ class LumpedUnitHydrograph(object):
         -> suh.update_duration(30/60).convolve(rainfall2)
     """
 
-    def __init__(self, method: str, geoparams: Union[dict, pd.Series]) -> None:
+    def __init__(self, method: str, geoparams: Union[dict, pd.Series]
+                 ) -> Type['LumpedUnitHydrograph']:
         """
         Synthetic unit hydrograph (SUH) constructor.
 
@@ -611,7 +612,7 @@ class LumpedUnitHydrograph(object):
         tparams = ['area', 'mriverlen', 'out2centroidlen', 'meanslope']
         if DGAChileParams:
             if DGAChileZone is None:
-                epsg_code = f'EPSG:{self.geoparams['EPSG']}'
+                epsg_code = f"EPSG:{self.geoparams['EPSG']}"
                 x = self.geoparams['centroid_x']
                 y = self.geoparams['centroid_y']
                 centroid = gpd.GeoSeries(Point(x, y), crs=epsg_code)
@@ -645,7 +646,7 @@ class LumpedUnitHydrograph(object):
             (tuple): tuple with the unit hydrograph time series and the
                 respective table of parameters
         """
-        geoparams = ['area', 'mriverlen', 'meanslope']
+        tparams = ['area', 'mriverlen', 'meanslope']
         if DGAChileParams:
             epsg_code = f'EPSG:{self.geoparams['EPSG']}'
             x = self.geoparams['centroid_x']
@@ -660,10 +661,10 @@ class LumpedUnitHydrograph(object):
                 raise RuntimeError(text)
 
             a, b = CHILE_UH_GRAYPARAMS['a'], CHILE_UH_GRAYPARAMS['b']
-            uh, uh_params = SUH_Gray(**self.geoparams[geoparams], a=a, b=b,
+            uh, uh_params = SUH_Gray(**self.geoparams[tparams], a=a, b=b,
                                      **kwargs)
         else:
-            uh, uh_params = SUH_Gray(**self.geoparams[geoparams], **kwargs)
+            uh, uh_params = SUH_Gray(**self.geoparams[tparams], **kwargs)
         return uh, uh_params
 
     def get_SHydrograph(self) -> pd.Series:
@@ -684,8 +685,18 @@ class LumpedUnitHydrograph(object):
                         interp_kwargs: dict = {'kind': 'quadratic'}
                         ) -> Type['LumpedUnitHydrograph']:
         """
-        This function uses de S-Curve to update the unit hydrograph duration
-        and the respective parameters.
+        This function uses the S-Curve to update the unit hydrograph
+        duration and the respective parameters.
+
+        Args:
+            duration (float): New storm duration (equal to time resolution)
+            interp_kwargs (dict, optional): args passed to
+                scipy.interpolation.interp1d function. 
+                Defaults to {'kind':'quadratic'}.
+
+        Returns:
+            LumpedUnitHydrograph: Updated instance of the class with the
+                new duration.
 
         Args:
             duration (float): New storm duration (equal to time resolution)
@@ -726,8 +737,9 @@ class LumpedUnitHydrograph(object):
     def convolve(self, rainfall: Union[pd.Series, pd.DataFrame], **kwargs: Any
                  ) -> Union[pd.Series, pd.DataFrame]:
         """
-        Solve for the convolution of a rainfall time series and the
-        unit hydrograph
+        Returns:
+            Union[pd.Series, pd.DataFrame]: The resulting flood hydrograph
+                after convolving the rainfall series with the unit hydrograph.
 
         Args:
             rainfall (array_like): Series of rain data
@@ -789,19 +801,19 @@ class LumpedUnitHydrograph(object):
 
         return self
 
-    def plot(self, **kwargs: Any
-             ) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    def plot(self, **kwargs: Any) -> Tuple[plt.figure, plt.axes]:
         """
         Simple accessor to plotting the unit hydrograph
         Args:
             **kwargs are given to pandas plot method
         Returns:
-            output of pandas plot method
+            Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]: 
+            A tuple containing the figure and axes of the plot.
         """
         params = self.params.to_dict()
         text = [f'{key}: {val:.2f}' for key, val in params.items()]
         text = ' ; '.join(text)
         fig = self.UnitHydro.plot(xlabel='(hr)', ylabel='m3 s-1 mm-1',
                                   title=text, **kwargs)
-        ax = matplotlib.pyplot.gca()
+        ax = plt.gca()
         return (fig, ax)
