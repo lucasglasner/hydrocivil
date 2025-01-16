@@ -648,6 +648,18 @@ class LumpedUnitHydrograph(object):
         """
         geoparams = ['area', 'mriverlen', 'meanslope']
         if DGAChileParams:
+            epsg_code = f'EPSG:{self.geoparams['EPSG']}'
+            x = self.geoparams['centroid_x']
+            y = self.geoparams['centroid_y']
+            centroid = gpd.GeoSeries(Point(x, y), crs=epsg_code)
+            centroid = centroid.repeat(len(CHILE_UH_GRAYPOLYGONS))
+            centroid = centroid.reset_index(drop=True).to_crs('EPSG:4326')
+            mask = centroid.within(CHILE_UH_LINSLEYPOLYGONS.geometry)
+            if mask.sum() == 0:
+                text = f'Basin is outside the geographical limits'
+                text += f' allowed by the Chilean Gray method.'
+                raise RuntimeError(text)
+
             a, b = CHILE_UH_GRAYPARAMS['a'], CHILE_UH_GRAYPARAMS['b']
             uh, uh_params = SUH_Gray(**self.geoparams[geoparams], a=a, b=b,
                                      **kwargs)
