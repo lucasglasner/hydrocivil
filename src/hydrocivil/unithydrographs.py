@@ -511,14 +511,14 @@ class LumpedUnitHydrograph(object):
     """
 
     def __init__(self, method: str,
-                 geoparams: Union[dict, pd.Series, pd.DataFrame]) -> None:
+                 geoparams: Union[dict, pd.Series]) -> None:
         """
         Synthetic unit hydrograph (SUH) constructor.
 
         Args:
             method (str): Type of synthetic unit hydrograph to use.
                 Options: 'SCS', Linsley, ...
-            geoparams (__type__): Input geomorphologic and land use parameters.
+            geoparams (dict): Input geomorphologic and land use parameters.
         """
         self.method = method
         self.geoparams = geoparams
@@ -616,15 +616,16 @@ class LumpedUnitHydrograph(object):
                 x = self.geoparams['centroid_x']
                 y = self.geoparams['centroid_y']
                 centroid = gpd.GeoSeries(Point(x, y), crs=epsg_code)
+                centroid = centroid.repeat(len(CHILE_UH_LINSLEYPOLYGONS))
+                centroid = centroid.reset_index(drop=True).to_crs('EPSG:4326')
                 mask = centroid.within(CHILE_UH_LINSLEYPOLYGONS.geometry)
                 if mask.sum() == 0:
-                    text = f'Basin {self.fid} is outside the geographical '
-                    text += f' limits allowed by the Chilean Linsley method.'
+                    text = f'Basin is outside the geographical limits'
+                    text += f' allowed by the Chilean Linsley method.'
                     raise RuntimeError(text)
                 else:
                     DGAChileZone = CHILE_UH_LINSLEYPOLYGONS[mask]
                     DGAChileZone = DGAChileZone.zone.item()
-                    self.params.loc['DGAChileZone'] = DGAChileZone
 
             coefs = CHILE_UH_LINSLEYPARAMS[DGAChileZone]
             uh, uh_params = SUH_Linsley(**self.geoparams[tparams], **coefs,
