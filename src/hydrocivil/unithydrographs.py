@@ -510,8 +510,7 @@ class LumpedUnitHydrograph(object):
         -> suh.update_duration(30/60).convolve(rainfall2)
     """
 
-    def __init__(self, method: str,
-                 geoparams: Union[dict, pd.Series]) -> None:
+    def __init__(self, method: str, geoparams: Union[dict, pd.Series]) -> None:
         """
         Synthetic unit hydrograph (SUH) constructor.
 
@@ -654,7 +653,7 @@ class LumpedUnitHydrograph(object):
             centroid = gpd.GeoSeries(Point(x, y), crs=epsg_code)
             centroid = centroid.repeat(len(CHILE_UH_GRAYPOLYGONS))
             centroid = centroid.reset_index(drop=True).to_crs('EPSG:4326')
-            mask = centroid.within(CHILE_UH_LINSLEYPOLYGONS.geometry)
+            mask = centroid.within(CHILE_UH_GRAYPOLYGONS.geometry)
             if mask.sum() == 0:
                 text = f'Basin is outside the geographical limits'
                 text += f' allowed by the Chilean Gray method.'
