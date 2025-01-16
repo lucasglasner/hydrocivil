@@ -113,6 +113,7 @@ def basin_geographical_params(fid: Union[str, int, float],
         raise RuntimeError(error)
 
     params = pd.DataFrame([], index=[fid])
+    params['EPSG'] = basin.crs.to_epsg()
     params['outlet_x'] = basin.outlet_x.item()
     params['outlet_y'] = basin.outlet_y.item()
     params['centroid_x'] = basin.centroid.x.item()

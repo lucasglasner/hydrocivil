@@ -486,27 +486,27 @@ class RiverBasin(object):
                        geography_kwargs: dict = {},
                        river_network_kwargs: dict = {}) -> Type['RiverBasin']:
         """
-
         Compute basin geomorphological properties:
-            1) Geographical properties: centroid coordinates, area, etc
-                Details in src.geomorphology.basin_geographical_params routine
+            1) Geographical properties: centroid coordinates, area, etc.
+                Details in src.geomorphology.basin_geographical_params routine.
             2) Terrain properties: DEM derived properties like minimum, maximum
                 or mean height, etc.
-                Details in src.geomorphology.basin_terrain_params
+                Details in src.geomorphology.basin_terrain_params.
             3) Flow derived properties: Main river length using graph theory, 
-                drainage density and shape factor. 
-                Details in src.geomorphology.main_river
+                drainage density and shape factor.
+                Details in src.geomorphology.get_main_river routine.
         Args:
-            preprocess_river_network (bool, optional): Whether to compute 
-                river network from given DEM. Requeries whitebox_workflows
-                package. Defaults to False. 
+            preprocess_rivers (bool, optional): Whether to compute 
+                river network from given DEM. Requires whitebox_workflows
+                package. Defaults to False.
+            preprocess_rivers_kwargs (dict, optional): Additional arguments for
+                the river network preprocessing function. Defaults to {}.
             dem_kwargs (dict, optional): Additional arguments for the terrain
                 preprocessing function. Defaults to {}.
             geography_kwargs (dict, optional): Additional arguments for the
-                geography preprocessing routine. Defauts to {}.
+                geography preprocessing routine. Defaults to {}.
             river_network_kwargs (dict, optional): Additional arguments for the
                 main river finding routine. Defaults to {}.
-                Details in src.geomorphology.main_river routine
         Returns:
             self: updated class
         """

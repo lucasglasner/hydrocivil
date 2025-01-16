@@ -19,12 +19,13 @@ import matplotlib
 
 from math import gamma
 from typing import Union, Any, Tuple, Type
-from numpy.typing import ArrayLike
 from scipy.interpolate import interp1d
 from scipy.special import gamma
+from shapely.geometry import Point
 
 from .geomorphology import concentration_time
 from .global_vars import CHILE_UH_LINSLEYPARAMS, CHILE_UH_GRAYPARAMS
+from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
 
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
@@ -608,13 +609,28 @@ class LumpedUnitHydrograph(object):
             (tuple): tuple with the unit hydrograph time series and the
                 respective table of parameters
         """
-        geoparams = ['area', 'mriverlen', 'out2centroidlen', 'meanslope']
+        tparams = ['area', 'mriverlen', 'out2centroidlen', 'meanslope']
         if DGAChileParams:
+            if DGAChileZone is None:
+                epsg_code = f'EPSG:{self.geoparams['EPSG']}'
+                x = self.geoparams['centroid_x']
+                y = self.geoparams['centroid_y']
+                centroid = gpd.GeoSeries(Point(x, y), crs=epsg_code)
+                mask = centroid.within(CHILE_UH_LINSLEYPOLYGONS.geometry)
+                if mask.sum() == 0:
+                    text = f'Basin {self.fid} is outside the geographical '
+                    text += f' limits allowed by the Chilean Linsley method.'
+                    raise RuntimeError(text)
+                else:
+                    DGAChileZone = CHILE_UH_LINSLEYPOLYGONS[mask]
+                    DGAChileZone = DGAChileZone.zone.item()
+                    self.params.loc['DGAChileZone'] = DGAChileZone
+
             coefs = CHILE_UH_LINSLEYPARAMS[DGAChileZone]
-            uh, uh_params = SUH_Linsley(**self.geoparams[geoparams], **coefs,
+            uh, uh_params = SUH_Linsley(**self.geoparams[tparams], **coefs,
                                         **kwargs)
         else:
-            uh, uh_params = SUH_Linsley(**self.geoparams[geoparams], **kwargs)
+            uh, uh_params = SUH_Linsley(**self.geoparams[tparams], **kwargs)
         return uh, uh_params
 
     def _Gray(self, DGAChileParams: bool = False, **kwargs: Any
