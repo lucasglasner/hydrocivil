@@ -489,10 +489,9 @@ class LumpedUnitHydrograph(object):
     """
     Synthetic Unit Hydrograph class used for building unit hydrograph of
     river basins as a function of geomorphometric and land use properties.
-    The class can be used to build the SCS, Linsley or Gray's unit hydrograph
-    of any watershed or the pre-calibrated Chilean unit hydrographs of
-    DGA/Arteaga&Benitez (Linsley) and Grey's both present in the national flood
-    manual.
+    The class can be used to build the Clark,  SCS, Linsley or Gray unit
+    hydrographs. Optionally, for Gray and Linsley methods, pre-calibrated
+    Chilean parameters are available following the national flood manual.
 
     Examples:
         + Compute SCS UH for a storm duration of 1 hour.
@@ -508,6 +507,12 @@ class LumpedUnitHydrograph(object):
         + Change duration of unit hydrograph to 30 minutes and compute
         + convolution with a new series of 30 minute rainfall pulses
         -> suh.update_duration(30/60).convolve(rainfall2)
+
+        + Compute Linsley or Gray UH with Chilean default parameters:
+        -> linsley = LumpedUnitHydrograph(method='Linsley', geoparams=geoparams,
+                                          DGAChileParams=True)
+        -> gray = LumpedUnitHydrograph(method='Gray', geoparams=geoparams,
+                                       DGAChileParams=True)
     """
 
     def __init__(self, method: str, geoparams: Union[dict, pd.Series]
