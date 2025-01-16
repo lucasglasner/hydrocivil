@@ -686,32 +686,6 @@ class RiverBasin(object):
             RuntimeError: If using Chilean parameters and basin centroid lies
                 outside valid geographical regions.
         """
-        # if (method == 'Linsley') and ChileParams:
-        #     poly = CHILE_UH_LINSLEYPOLYGONS
-        #     centroid = self.basin.centroid.to_crs('epsg:4326').loc[0]
-        #     mask = centroid.within(poly.geometry)
-        #     if mask.sum() == 0:
-        #         text = f'Basin {self.fid} is outside the geographical limits'
-        #         text = text+f' allowed by the Chilean {method} method.'
-        #         raise RuntimeError(text)
-        #     else:
-        #         DGAChile_LinsleyZone = poly[mask].zone.item()
-        #         self.params.loc['DGAChile_LinsleyZone'] = DGAChile_LinsleyZone
-        #         uh = SUH(method, self.params[self.fid])
-        #         uh = uh.compute(DGAChileParams=True,
-        #                         DGAChileZone=DGAChile_LinsleyZone, **kwargs)
-        # elif (method == 'Gray') and ChileParams:
-        #     poly = CHILE_UH_GRAYPOLYGONS
-        #     centroid = self.basin.centroid.to_crs('epsg:4326').loc[0]
-        #     mask = centroid.within(poly.geometry)
-        #     if mask.sum() == 0:
-        #         text = f'Basin {self.fid} is outside the geographical limits'
-        #         text = text+f' allowed by the Chilean {method} method.'
-        #         raise RuntimeError(text)
-        #     else:
-        #         uh = SUH(method, self.params[self.fid])
-        #         uh = uh.compute(DGAChileParams=True, **kwargs)
-        # else:
         uh = SUH(method, self.params[self.fid])
         uh = uh.compute(**kwargs)
         self.UnitHydro = uh
