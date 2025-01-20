@@ -14,13 +14,12 @@ import warnings
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-import rioxarray as rxr
 import xarray as xr
 import copy as pycopy
 import matplotlib
 import matplotlib.pyplot as plt
 
-from typing import Union, Any, Optional, Type, Tuple
+from typing import Union, Any, Type, Tuple
 from osgeo import gdal, gdal_array
 from scipy.interpolate import interp1d
 
@@ -28,7 +27,6 @@ from .misc import raster_distribution, polygonize, gdal2xarray, xarray2gdal
 from .unithydrographs import LumpedUnitHydrograph as SUH
 from .geomorphology import get_main_river, basin_outlet
 from .geomorphology import basin_geographical_params, basin_terrain_params
-from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
 from .global_vars import GDAL_EXCEPTIONS, _has_whitebox
 from .abstractions import cn_correction
 from .abstractions import SCS_EffectiveRainfall, SCS_EquivalentCurveNumber
@@ -523,7 +521,7 @@ class RiverBasin(object):
         if self.rivers is not None:
             self._processrivers(**river_network_kwargs)
         else:
-            if preprocess_rivers:
+            if preprocess_rivers and _has_whitebox:
                 from .wb_tools import wbDEMpreprocess
                 flow, rivers = wbDEMpreprocess(self.dem.elevation,
                                                return_streams=True,
