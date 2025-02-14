@@ -14,16 +14,20 @@
 # Core functionality
 from . import (
     abstractions,
+    channels,
     geomorphology,
     unithydrographs,
     rain,
     watersheds,
+    reservoirs
 )
 
 # Direct class imports
 from .global_vars import _has_whitebox
 from .watersheds import RiverBasin
 from .rain import RainStorm
+from .reservoirs import Reservoir
+from .channels import RiverReach
 from .unithydrographs import LumpedUnitHydrograph
 
 # Utilities
