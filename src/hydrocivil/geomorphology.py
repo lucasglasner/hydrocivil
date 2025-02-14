@@ -71,7 +71,7 @@ def basin_outlet(basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
         outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
             coordinates.
     """
-    dx = (max(dem.y.diff('y')[0], dem.x.diff('x')[0])).item()
+    dx = abs((max(dem.y.diff('y')[0], dem.x.diff('x')[0])).item())
     basin_boundary = basin.boundary
     dem_boundary = dem.rio.clip(basin_boundary.buffer(dx*n))
     dem_boundary = dem_boundary.where(dem_boundary != -9999)
@@ -239,7 +239,7 @@ def tc_SCS(mriverlen: Union[int, float], meanslope: Union[int, float],
 
     Args:
         mriverlen (float): Main river length in (km)
-        meanslope (float): Basin mean slope in m/m
+        meanslope (float): Mean slope in m/m
         curvenumber (float): Basin curve number (dimensionless)
         **kwargs do nothing
 
@@ -338,7 +338,7 @@ def tc_spain(mriverlen: Union[int, float], meanslope: Union[int, float],
 
     Args:
         mriverlen (float): Main river length in (km)
-        meanslope (float): Basin mean slope in m/m
+        meanslope (float): Mean slope in m/m
         **kwargs do nothing
 
     Returns:

@@ -278,22 +278,54 @@ class RiverBasin(object):
         self.params = pd.concat([self.params, terrain_params], axis=1)
         return self
 
-    def _processrivers(self) -> Type['RiverBasin']:
+    def _get_dem_resolution(self) -> float:
+        """
+        Compute DEM maximum resolution
+        Returns:
+            (float): raster resolution
+        """
+        dx = self.dem.elevation.x.diff('x')[0].item()
+        dy = self.dem.elevation.y.diff('y')[0].item()
+        return abs(max(dx, dy))
+
+    def _processrivers(self, preprocess_rivers: bool = False,
+                       **kwargs,
+                       ) -> Type['RiverBasin']:
         """
         Compute river network properties
-
+        Args:
+            preprocess_rivers (bool, optional): Whether to compute 
+                river network from given DEM. Requires whitebox_workflows
+                package. Defaults to False.
+            **kwargs: Additional arguments for the river network preprocessing
+                function.
         Returns:
             self: updated class
         """
+        # Flow derived params
+        if self.rivers is None and preprocess_rivers and _has_whitebox:
+            from .wb_tools import wbDEMpreprocess
+            flow, rivers = wbDEMpreprocess(self.dem.elevation,
+                                           return_streams=True, **kwargs)
+            self.dem = xr.merge([self.dem, flow])
+            self.rivers = rivers
         try:
+            # Main river
             mainriver = get_main_river(self.rivers)
             self.rivers_main = mainriver
+
+            # Main river stats
             mriverlen = self.rivers_main.length.sum()/1e3
             if mriverlen.item() != 0:
                 mriverlen = mriverlen.item()
+                dx = self._get_dem_resolution()
+                geom = mainriver.buffer(dx).geometry
+                mriverslope = self.dem.slope.rio.clip(geom).mean().item()
             else:
                 mriverlen = np.nan
+                mriverslope = np.nan
             self.params['mriverlen'] = mriverlen
+            self.params['mriverslope'] = mriverslope
         except Exception as e:
             warnings.warn('Flow derived properties Error: ' + f'{e}')
         return self
@@ -478,8 +510,7 @@ class RiverBasin(object):
         self.cn_equivalent = curve
         return curve
 
-    def compute_params(self, preprocess_rivers: bool = False,
-                       preprocess_rivers_kwargs: dict = {},
+    def compute_params(self,
                        dem_kwargs: dict = {},
                        geography_kwargs: dict = {},
                        river_network_kwargs: dict = {}) -> Type['RiverBasin']:
@@ -494,11 +525,6 @@ class RiverBasin(object):
                 drainage density and shape factor.
                 Details in src.geomorphology.get_main_river routine.
         Args:
-            preprocess_rivers (bool, optional): Whether to compute 
-                river network from given DEM. Requires whitebox_workflows
-                package. Defaults to False.
-            preprocess_rivers_kwargs (dict, optional): Additional arguments for
-                the river network preprocessing function. Defaults to {}.
             dem_kwargs (dict, optional): Additional arguments for the terrain
                 preprocessing function. Defaults to {}.
             geography_kwargs (dict, optional): Additional arguments for the
@@ -518,18 +544,7 @@ class RiverBasin(object):
         self._processdem(**dem_kwargs)
 
         # Flow derived params
-        if self.rivers is not None:
-            self._processrivers(**river_network_kwargs)
-        else:
-            if preprocess_rivers and _has_whitebox:
-                from .wb_tools import wbDEMpreprocess
-                flow, rivers = wbDEMpreprocess(self.dem.elevation,
-                                               return_streams=True,
-                                               **preprocess_rivers_kwargs)
-                self.dem = xr.merge([self.dem, flow])
-                self.rivers = rivers
-                self._processrivers(**river_network_kwargs)
-                self.params['mriverlen'] = flow.flowlen.max().item()/1e3
+        self._processrivers(**river_network_kwargs)
 
         # Curve number process
         if self.cn is not None:

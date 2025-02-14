@@ -17,7 +17,7 @@ import xarray as xr
 
 from osgeo import gdal, gdal_array
 from rasterio.features import shapes
-from shapely.geometry import shape
+from shapely.geometry import shape, Point
 
 from typing import Union, Tuple, Any
 from numpy.typing import ArrayLike
@@ -29,6 +29,48 @@ else:
     gdal.DontUseExceptions()
 
 # ------------------------------------ gis ----------------------------------- #
+
+
+def raster_cross_section(raster: xr.DataArray, line: gpd.GeoSeries,
+                         **kwargs: Any) -> Tuple[pd.Series, gpd.GeoSeries]:
+    """
+    Sample values from a raster at specified points along a line
+    (or multiple lines) and return the sampled data along with the points.
+
+    Parameters:
+    - raster (xr.DataArray): A 2D xarray containing the raster data
+        (with dimensions 'x' and 'y').
+    - line (gpd.GeoSeries): A GeoSeries containing the geometries of lines
+        (LineString or MultiLineString) for sampling locations.
+    - **kwargs (Any): Additional keyword arguments passed to the interpolation
+        method for raster sampling.
+
+    Returns:
+    - Tuple[pd.Series, gpd.GeoSeries]: A tuple where:
+        - The first element is a pandas Series containing the interpolated
+          values at each point along the line(s).
+        - The second element is a GeoSeries of Points representing the
+          locations where the raster was sampled.
+    """
+    # Get coordinates of line points
+    line_coords = []
+    for segment in line.geometry:
+        if segment.geom_type == "MultiLineString":
+            for single_line in segment.geoms:
+                line_coords.extend(list(single_line.coords))
+        else:  # If it's already a LineString
+            line_coords.extend(list(segment.coords))
+
+    # Get point and x,y coordinates
+    points = [Point(p[0], p[1]) for p in line_coords]
+    xs, ys = zip(*[(p.x, p.y) for p in points])
+
+    # Sample raster with points with interpolation
+    xs = xr.DataArray(list(xs), dims=('points'))
+    ys = xr.DataArray(list(ys), dims=('points'))
+    data = raster.interp(x=xs, y=ys, **kwargs).to_series()
+    points = gpd.GeoSeries(points)
+    return data, points
 
 
 def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
