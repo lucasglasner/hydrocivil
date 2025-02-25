@@ -283,10 +283,12 @@ def tc_giandotti(mriverlen: Union[int, float], hmean: Union[int, float],
                  **kwargs: Any) -> float:
     """
     Giandotti equation method.
-    Valid for small basins (< 20km2) with high slope (>10%) ¿?. 
+    Valid for small basins with high slope ¿?. 
 
     Reference:
-        ???
+        Volumen 3, Manual de Carreteras 1995. Tabla 3.702.501A
+        Giandotti, M., 1934. Previsione delle piene e delle magre dei corsi
+            d’acqua. Istituto Poligrafico dello Stato, 8, 107–117.
 
     Args:
         mriverlen (float): Main river length in (km)
@@ -301,7 +303,13 @@ def tc_giandotti(mriverlen: Union[int, float], hmean: Union[int, float],
     a = (4*area**0.5+1.5*mriverlen)
     b = (0.8*(hmean-hmin)**0.5)
     Tc = 60*a/b
-    return Tc
+
+    if (Tc/60 >= mriverlen/5.4) or (Tc/60 <= mriverlen/3.6):
+        return Tc
+    else:
+        text = "Giandotti: The condition 'L/3.6 >= Tc >= L/5.4' was not met!"
+        warnings.warn(text)
+        return np.nan
 
 
 def tc_california(mriverlen: Union[int, float], hmax: Union[int, float],

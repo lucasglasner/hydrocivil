@@ -132,12 +132,12 @@ class Reservoir:
         Computes the reservoir stage and discharge over time using the water
         balance equation:
 
-            dV/dt = (Qi - Qo)
-            dV/dh * dh/dt = (Qi - Qo)
-            dh/dt = (Qi - Qo) / (dV/dh)
+            dS/dt = (Qi - Qo)
+            dS/dh * dh/dt = (Qi - Qo)
+            dh/dt = (Qi - Qo) / (dS/dh)
 
         where:
-            V(h) is the stage-storage function (capacity of the reservoir)
+            S(h) is the stage-storage function (capacity of the reservoir)
             h(t) is the water stage or level in meters
             Qi(t) is the input hydrograph in m3/s
             Qo(h) is the stage-discharge curve which depends on the reservoir

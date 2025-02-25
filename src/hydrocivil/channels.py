@@ -61,19 +61,26 @@ class RiverReach:
         new_time = time + lag       # Shift time indices
         lagged_values = np.interp(time, new_time, inflow.values,  # Interpolate
                                   **kwargs)
-
         return pd.Series(lagged_values, index=time)
 
     def _NormalDepth():
+        """
+        """
         pass
 
     def _Muskingum():
+        """
+        """
         pass
 
     def _MuskingumCunge():
+        """
+        """
         pass
 
     def compute(self, inflow: pd.Series, **kwargs):
+        """
+        """
         self.inflow = inflow
         if self.method == 'Lag':
             self.outflow = self._Lag(inflow=inflow, **kwargs)
