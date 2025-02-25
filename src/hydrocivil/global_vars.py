@@ -12,7 +12,7 @@ import pandas as pd
 import geopandas as gpd
 
 try:
-    from . import wb_tools
+    import whitebox_workflows as wbw
 except:
     _has_whitebox = False
 else:

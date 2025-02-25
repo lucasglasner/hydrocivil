@@ -36,8 +36,10 @@ from . import (
     web
 )
 
+# GIS
 if _has_whitebox:
     from . import wb_tools
+    from .wb_tools import wbe
 
 
 __version__ = "0.7.0"
@@ -49,5 +51,7 @@ from typing import List
 __all__: List[str] = [
     'RiverBasin',
     'LumpedUnitHydrograph',
-    'RainStorm'
+    'RainStorm',
+    'Reservoir',
+    'RiverReach'
 ]

@@ -16,6 +16,7 @@ import geopandas as gpd
 from shapely.geometry import LineString, Polygon
 import warnings
 import whitebox_workflows as wbw
+wbe = wbw.WbEnvironment()
 
 
 def wbRaster2numpy(obj: wbw.Raster) -> np.ndarray:
@@ -328,7 +329,7 @@ def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
     """
     array = da.values
     configs = xarray2wbRasterConfigs(da)
-    new_raster = wbw.WbEnvironment().new_raster(configs)
+    new_raster = wbe.new_raster(configs)
     for row in range(configs.rows):
         for col in range(configs.columns):
             new_raster[row, col] = array[row, col]
@@ -352,35 +353,47 @@ def wbDEMstreams(dem: wbw.Raster,
         geopandas.GeoDataFrame: GeoDataFrame containing the extracted stream
             network.
     """
-    # Create whitebox enviroment
-    wbe = wbw.WbEnvironment()
-
-    w_streams_r = wbe.extract_streams(facc, facc_threshold)
-    streams_r = wbRaster2xarray(w_streams_r).to_dataset(name='streams')
-    w_streams = wbe.raster_streams_to_vector(w_streams_r, fdir)
-    w_streams = wbe.vector_stream_network_analysis(w_streams, dem)
-    streams_v = wbVector2geopandas(w_streams[0])
+    streams_r = wbe.extract_streams(facc, facc_threshold)
+    streams_v = wbe.raster_streams_to_vector(streams_r, fdir)
+    streams_v = wbe.vector_stream_network_analysis(streams_v, dem)
+    streams_v = wbVector2geopandas(streams_v[0])
     return streams_v, streams_r
 
 
 def wbDEMpreprocess(dem: xr.DataArray,
-                    depressions_method: str = 'fill',
+                    transform2xarray: bool = False,
+                    smooth: bool = False,
+                    carve_dist: float = 0,
                     return_streams: bool = False,
-                    flow_accumulation_threshold: float = 1e6
-                    ) -> Tuple[xr.Dataset, gpd.GeoDataFrame]:
+                    facc_threshold: float = 1e5,
+                    smooth_kws: dict = dict(filter_size=10,
+                                            normal_diff_threshold=25.0,
+                                            iterations=3),
+                    fill_kws: dict = {},
+                    breach_kws: dict = {}) -> Tuple[xr.Dataset, gpd.GeoDataFrame]:
     """
     Preprocess a DEM (Digital Elevation Model) using WhiteboxTools to create
     a depressionless DEM, compute flow direction, flow accumulation, and flow
-    length. Optionally, extract stream networks.
+    length using the D8 algorithm. Optionally, extract stream networks.
 
     Args:
         dem (xr.DataArray): Input DEM as an xarray DataArray.
-        depressions_method (str, optional): Method to remove depressions.
-            Options are 'fill' or 'breach'. Defaults to 'fill'.
+        transform2xarray (bool, optional): Whether to transform output rasters
+            to xarray objects. Defaults to False.
+        smooth (bool, optional): Whether to smooth the input DEM with a 
+            feature preserving filter.
+        carve_dist (float, optional): Maximum distance to carve when breaching.
+            Defaults to 0.
         return_streams (bool, optional): Whether to extract and return stream
             networks. Defaults to False.
-        flow_accumulation_threshold (float, optional): Threshold for flow
-            accumulation to define streams. Defaults to 1e6.
+        facc_threshold (float, optional): Threshold for flow
+            accumulation to define streams. Defaults to 1e5.
+        smooth_kws (dict, optional): Additional arguments for the smoothing
+            filter.
+        fill_kws (dict, optional): Additional arguments for the fill
+            depressions method.
+        breach_kws (dict, optional): Additional arguments for the breach
+            depressions method.
     Returns
         Tuple[xr.Dataset, gpd.GeoDataFrame]: A tuple containing:
             - xr.Dataset: Dataset with flow direction, flow accumulation,
@@ -388,40 +401,46 @@ def wbDEMpreprocess(dem: xr.DataArray,
             - gpd.GeoDataFrame: GeoDataFrame with stream networks if
                 return_streams is True, otherwise an empty GeoDataFrame.
     """
-    # Create whitebox enviroment and transform dem to a whitebox object
-    wbe = wbw.WbEnvironment()
-    w_dem = xarray2wbRaster(dem.copy())
+    dem = xarray2wbRaster(dem.copy())
+
+    # Smooth DEM
+    if smooth:
+        dem = wbe.feature_preserving_smoothing(dem, **smooth_kws)
+
+    # Compute hillshade
+    hs = wbe.multidirectional_hillshade(dem)
 
     # Create the depressionless DEM
-    if depressions_method == 'breach':
-        w_dem_filled = wbe.breach_depressions_least_cost(w_dem)
-    elif depressions_method == 'fill':
-        w_dem_filled = wbe.fill_depressions(w_dem)
+    if carve_dist != 0:
+        dem_no_deps = wbe.breach_depressions_least_cost(dem,
+                                                        max_dist=carve_dist,
+                                                        **breach_kws)
+        dem_no_deps = wbe.fill_depressions(dem_no_deps, **fill_kws)
     else:
-        text = f'{depressions_method} must be one of ["breach", "fill"]'
-        raise ValueError(text)
+        dem_no_deps = wbe.fill_depressions(dem, **fill_kws)
 
-    # Compute flow direction, accumulation and length
-    w_d8flowdir = wbe.d8_pointer(w_dem_filled)
-    w_d8flowacc = wbe.d8_flow_accum(w_d8flowdir, input_is_pointer=True,
-                                    out_type='catchment area')
-    w_d8flowlen = wbe.downslope_flowpath_length(w_d8flowdir)
-
-    # Transform whitebox objects to xarray data arrays
-    dem_filled = wbRaster2xarray(w_dem_filled).to_dataset(name='dem_filled')
-    d8_flowdir = wbRaster2xarray(w_d8flowdir).to_dataset(name='flowdir')
-    d8_flowacc = wbRaster2xarray(w_d8flowacc).to_dataset(name='flowacc')
-    d8_flowlen = wbRaster2xarray(w_d8flowlen).to_dataset(name='flowlen')
-    rasters = xr.merge([dem_filled, d8_flowdir, d8_flowacc, d8_flowlen])
-    rasters = rasters.reindex({'x': dem.x, 'y': dem.y}, method='nearest')
-    rasters = rasters.where(~np.isnan(dem))
+    # Compute flow direction, accumulation and flow path length
+    d8flowdir = wbe.d8_pointer(dem_no_deps)
+    d8flowacc = wbe.d8_flow_accum(d8flowdir,
+                                  input_is_pointer=True,
+                                  out_type='catchment area')
+    d8flowlen = wbe.downslope_flowpath_length(d8flowdir)
+    names = ['elevation', 'hillshade', 'elevation_nodeps',
+             'flowdir', 'flowacc', 'flowlen']
+    rasters = [dem, hs, dem_no_deps, d8flowdir, d8flowacc, d8flowlen]
 
     # Compute vector streams if asked and return final results
     if return_streams:
-        streams = wbDEMstreams(w_dem, w_d8flowdir, w_d8flowacc,
-                               facc_threshold=flow_accumulation_threshold)
-        streams_v, streams_r = streams
-        rasters = xr.merge([rasters, streams_r])
+        streams_v, streams_r = wbDEMstreams(dem, d8flowdir, d8flowacc,
+                                            facc_threshold=facc_threshold)
+        names.append('streams')
+        rasters = rasters.append(streams_r)
     else:
-        streams = gpd.GeoDataFrame()
+        streams_v = gpd.GeoDataFrame()
+
+    # Transform whitebox objects to xarray data arrays
+    if transform2xarray:
+        rasters = [wbRaster2xarray(da).to_dataset(name=n)
+                   for n, da in zip(names, rasters)]
+
     return (rasters, streams_v)
