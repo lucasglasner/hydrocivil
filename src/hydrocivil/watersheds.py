@@ -304,9 +304,11 @@ class RiverBasin(object):
         """
         # Flow derived params
         if self.rivers is None and preprocess_rivers and _has_whitebox:
-            from .wb_tools import wbDEMpreprocess, wbRaster2xarray
+            from .wb_tools import wbDEMpreprocess
             rasters, rivers = wbDEMpreprocess(self.dem.elevation,
-                                              return_streams=True, **kwargs)
+                                              return_streams=True,
+                                              raster2xarray=True,
+                                              **kwargs)
             self.dem = xr.merge([self.dem]+rasters)
             self.rivers = rivers
         try:
