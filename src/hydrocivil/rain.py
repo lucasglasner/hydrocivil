@@ -218,7 +218,7 @@ class RainStorm(object):
         """
         return SHYETO_DATA[kind]
 
-    def _scipy_hyetograph(self, kind: str, loc: float, scale: float,
+    def _scipy_hyetograph(self, kind: str, loc: float = 0.5, scale: float = 0.1,
                           flip: bool = False, n: int = 1000, **kwargs: Any
                           ) -> pd.Series:
         """Synthetic hyetograph generator function for any of scipy
