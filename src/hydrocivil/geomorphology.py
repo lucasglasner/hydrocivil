@@ -356,32 +356,33 @@ def tc_spain(mriverlen: Union[int, float], meanslope: Union[int, float],
     return Tc
 
 
+@np.vectorize
 def concentration_time(method: str, **kwargs: Any) -> float:
     """
     General function for computing the concentration time with different
-    formulas.
+    formulas. This version supports both scalar and vectorized inputs.
 
     Args:
         method (str): Concentration time formula:
             Options:
-                California, Giandotti, Kirpich, SCS, Spain, 
+                California, Giandotti, Kirpich, SCS, Spain
         **kwargs are given to the respective concentration time formula
 
     Raises:
-        ValueError: If user asks for an unkown method
+        ValueError: If user asks for an unknown method
 
     Returns:
         (float): Concentration time (minutes)
     """
-    if method == 'California':
-        return tc_california(**kwargs)
-    elif method == 'Giandotti':
-        return tc_giandotti(**kwargs)
-    elif method == 'Kirpich':
-        return tc_kirpich(**kwargs)
-    elif method == 'SCS':
-        return tc_SCS(**kwargs)
-    elif method == 'Spain':
-        return tc_spain(**kwargs)
-    else:
+    methods = {
+        'California': tc_california,
+        'Giandotti': tc_giandotti,
+        'Kirpich': tc_kirpich,
+        'SCS': tc_SCS,
+        'Spain': tc_spain
+    }
+
+    if method not in methods:
         raise ValueError(f'"{method}": Unknown tc method!')
+
+    return methods[method](**kwargs)
