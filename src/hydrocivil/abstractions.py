@@ -66,7 +66,7 @@ def SCS_MaximumRetention(cn: Union[int, float, ArrayLike],
         (float): maximum soil retention in mm by default
     """
     S = 1000/cn - 10
-    return cfactor*S
+    return cfactor*S if cn > 0 else np.nan
 
 
 def SCS_EquivalentCurveNumber(pr: Union[int, float, ArrayLike],
@@ -104,10 +104,11 @@ def SCS_EquivalentCurveNumber(pr: Union[int, float, ArrayLike],
     return CN_eq
 
 
-def SCS_EffectiveRainfall(pr: Union[int, float, ArrayLike],
-                          cn: Union[int, float, ArrayLike],
+@np.vectorize
+def SCS_EffectiveRainfall(pr: Union[int, float],
+                          cn: Union[int, float],
                           r: float = 0.2,
-                          **kwargs: float) -> Union[float, ArrayLike]:
+                          **kwargs: float) -> float:
     """
     SCS formula for effective precipitation/runoff.
 
@@ -125,41 +126,21 @@ def SCS_EffectiveRainfall(pr: Union[int, float, ArrayLike],
         >>> SCS_EffectiveRainfall([10,20,30], 75)
         array([0., 2.45, 8.67])
     """
-    def _scalar(pr: Union[int, float],
-                cn: Union[int, float],
-                r: float = 0.2,
-                **kwargs: float) -> Union[float]:
-        """
-        Core SCS calculation for scalar inputs
+    if np.isnan(pr) or np.isnan(cn):
+        return np.nan
+    if pr < 0:
+        raise ValueError("Precipitation must be positive")
+    if not 0 <= cn <= 100:
+        raise ValueError("CN must be between 0 and 100")
+    if r <= 0:
+        raise ValueError("Initial abstraction ratio must be positive")
 
-        Raises:
-            ValueError: If pr is not positive
-            ValueError: If CN is not between 0 and 100
-            ValueError: If r is not positive
+    S = SCS_MaximumRetention(cn, **kwargs)
+    Ia = r * S
 
-        Returns:
-            float: Effective rainfall depth [mm]
-        """
-        if np.isnan(pr) or np.isnan(cn):
-            return np.nan
-        if pr < 0:
-            raise ValueError("Precipitation must be positive")
-        if not 0 <= cn <= 100:
-            raise ValueError("CN must be between 0 and 100")
-        if r <= 0:
-            raise ValueError("Initial abstraction ratio must be positive")
-        S = SCS_MaximumRetention(cn, **kwargs)
-        Ia = r*S
-        if pr <= Ia:
-            pr_eff = 0
-        else:
-            pr_eff = (pr-Ia)**2/(pr-Ia+S)
-        return pr_eff
-
-    if np.isscalar(pr) and np.isscalar(cn):
-        return _scalar(pr, cn, r, **kwargs)
-    else:
-        return np.vectorize(_scalar, otypes=[float])(pr, cn, r, **kwargs)
+    if pr <= Ia:
+        return 0.0
+    return (pr - Ia) ** 2 / (pr - Ia + S)
 
 
 def SCS_Abstractions(pr: Union[int, float, ArrayLike],

@@ -75,7 +75,7 @@ storm.losses.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
 wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph. 
 
 # Compute the flood hydrograph as the convolution of the design storm with the unit hydrograph
-wshed.UnitHydro.convolve(storm.Effective_Hyetograph).plot()
+wshed.UnitHydro.convolve(storm.pr_eff).plot()
 ```
 
     <Axes: >

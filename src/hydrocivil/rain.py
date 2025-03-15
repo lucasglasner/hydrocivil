@@ -161,66 +161,19 @@ class RainStorm(object):
         -> narrow = storm.compute(timestep=0.5, duration=12, rainfall=100)
         -> wide   = storm.compute(timestep=0.5, duration=12, rainfall=100)
     """
+    PREDEFINED_STORMS = SHYETO_DATA.columns
 
-    def synth_rain(self,
-                   loc: float, scale: float, flip: bool = False, n: int = 1000,
-                   **kwargs: Any) -> pd.Series:
-        """
-        Synthetic hyetograph generator function. If the storm type given
-        in the class constructor is part of any of scipy distributions 
-        the synthetic hyetograph will be built with the given loc, scale
-        and scipy default parameters. 
-
-        Args:
-            loc (float, optional): Location parameter for distribution type
-                hyetographs. Defaults to 0.5.
-            scale (float, optional): Scale parameter for distribution type
-                hyetographs. Defaults to 0.1.
-            flip (bool): Whether to flip the distribution along the x-axis
-                or not. Defaults to False.
-            n (int, optional): Number of records in the dimensionless storm
-            **kwargs are given to scipy.rv_continuous.pdf
-
-        Returns:
-            (pandas.Series): Synthetic Hyetograph 1D Table
-        """
-        time_dimless = np.linspace(0, 1, n)
-        kind = self.kind
-        scipy_distrs = [d for d in dir(st)
-                        if isinstance(getattr(st, d), st.rv_continuous)]
-        if kind in scipy_distrs:
-            distr = eval(f'st.{kind}')
-            shyeto = distr.pdf(time_dimless, loc=loc, scale=scale,
-                               **kwargs)
-            shyeto = shyeto/np.sum(shyeto)
-            if flip:
-                shyeto = pd.Series(shyeto[::-1], index=time_dimless)
-            else:
-                shyeto = pd.Series(shyeto, index=time_dimless)
-        else:
-            shyeto = SHYETO_DATA[kind]
-        return shyeto
-
-    def __init__(self, kind: str = 'norm', loc: float = 0.5, scale: float = 0.1,
-                 **kwargs: Any) -> None:
+    def __init__(self, kind: str, **kwargs: Any) -> None:
         """
         Synthetic RainStorm builder
 
         Args:
-            kind (str): Type of synthetic hyetograph to use. It can be of two
-                types:
-                    1) Any of scipy distributiosn (give parameters in **kwargs)
-                    2) Any of
-                        "SCS_X" with X = I24,IA24,II6,II12,II24,II48,III24
-                        "GX_Benitez1985" with X = 1,2,3
-                        "GX_Espildora1979" with X = 1,2,3
-                        "GXpY_Varas1985" with X = 1,2,3,4 and Y=10,25,50,75,90
-                Defaults to 'norm'.
-            loc (float): Number between 0 - 1 to specify location parameter
-                for statistic-like rainfall distribution. Defaults to 0.5.
-            scale (float): Number between 0 -1 to specify scale parameter
-                for statistic-like rainfall distribution. Defaults to 0.1.
-            **kwargs are given to scipy.rv_continuous.pdf
+            kind (str): Type of storm model to use.
+                - Predefined (e.g., 'SCS_I24', 'GX_Benitez1985_1')
+                - SciPy distribution (e.g., 'norm', 'gamma')
+            **kwargs: Additional parameters depending on the storm type.
+                - For predefined storms: No extra parameters needed.
+                - For SciPy distributions: `loc`, `scale`, and shape params.
 
         Examples:
             RainStorm('SCS_I24')
@@ -236,11 +189,103 @@ class RainStorm(object):
         self.duration = None
         self.rainfall = None
         self.infiltration = None
-
         self.pr = None
         self.pr_eff = None
         self.losses = None
-        self.pr_dimless = self.synth_rain(loc=loc, scale=scale, **kwargs)
+
+        if kind in self.PREDEFINED_STORMS:
+            self.pr_dimless = self._predefined_hyetograph(kind)
+        elif hasattr(st, kind):
+            self.pr_dimless = self._scipy_hyetograph(kind, **kwargs)
+        else:
+            raise ValueError(f"Unknown storm type: {kind}")
+
+    def _predefined_hyetograph(self, kind: str) -> pd.Series:
+        """
+        Synthetic hyetograph generator function for predefined synthetic
+        hyetographs.
+
+        Args:
+            kind (str): Type of synthetic hyetograph to use.
+                Can be any of:
+                   > "SCS_X" with X = I24,IA24,II6,II12,II24,II48,III24
+                   > "GX_Benitez1985" with X = 1,2,3
+                   > "GX_Espildora1979" with X = 1,2,3
+                   > "GXpY_Varas1985" with X = 1,2,3,4 and Y=10,25,50,75,90
+
+        Returns:
+            (pandas.Series): Synthetic Hyetograph 1D Table
+        """
+        return SHYETO_DATA[kind]
+
+    def _scipy_hyetograph(self, kind: str, loc: float, scale: float,
+                          flip: bool = False, n: int = 1000, **kwargs: Any
+                          ) -> pd.Series:
+        """Synthetic hyetograph generator function for any of scipy
+        distributions. The synthetic hyetograph will be built with the given
+        loc, scale and scipy default parameters. 
+
+        Args:
+            loc (float, optional): Location parameter for distribution type
+                hyetographs. Defaults to 0.5.
+            scale (float, optional): Scale parameter for distribution type
+                hyetographs. Defaults to 0.1.
+            flip (bool): Whether to flip the distribution along the x-axis
+                or not. Defaults to False.
+            n (int, optional): Number of records in the dimensionless storm
+            **kwargs are given to scipy.rv_continuous.pdf
+
+        Returns:
+            (pandas.Series): Synthetic Hyetograph 1D Table
+        """
+        time_dimless = np.linspace(0, 1, n)
+        distr = getattr(st, kind)
+        shyeto = distr.pdf(time_dimless, loc=loc, scale=scale, **kwargs)
+        shyeto /= np.sum(shyeto)  # Normalize to sum 1
+        if flip:
+            shyeto = pd.Series(shyeto[::-1], index=time_dimless)
+        else:
+            shyeto = pd.Series(shyeto, index=time_dimless)
+        return pd.Series(shyeto, index=time_dimless)
+
+    # def synth_rain(self,
+    #                loc: float, scale: float, flip: bool = False, n: int = 1000,
+    #                **kwargs: Any) -> pd.Series:
+    #     """
+    #     Synthetic hyetograph generator function. If the storm type given
+    #     in the class constructor is part of any of scipy distributions
+    #     the synthetic hyetograph will be built with the given loc, scale
+    #     and scipy default parameters.
+
+    #     Args:
+    #         loc (float, optional): Location parameter for distribution type
+    #             hyetographs. Defaults to 0.5.
+    #         scale (float, optional): Scale parameter for distribution type
+    #             hyetographs. Defaults to 0.1.
+    #         flip (bool): Whether to flip the distribution along the x-axis
+    #             or not. Defaults to False.
+    #         n (int, optional): Number of records in the dimensionless storm
+    #         **kwargs are given to scipy.rv_continuous.pdf
+
+    #     Returns:
+    #         (pandas.Series): Synthetic Hyetograph 1D Table
+    #     """
+    #     time_dimless = np.linspace(0, 1, n)
+    #     kind = self.kind
+    #     scipy_distrs = [d for d in dir(st)
+    #                     if isinstance(getattr(st, d), st.rv_continuous)]
+    #     if kind in scipy_distrs:
+    #         distr = eval(f'st.{kind}')
+    #         shyeto = distr.pdf(time_dimless, loc=loc, scale=scale,
+    #                            **kwargs)
+    #         shyeto = shyeto/np.sum(shyeto)
+    #         if flip:
+    #             shyeto = pd.Series(shyeto[::-1], index=time_dimless)
+    #         else:
+    #             shyeto = pd.Series(shyeto, index=time_dimless)
+    #     else:
+    #         shyeto = SHYETO_DATA[kind]
+    #     return shyeto
 
     def __repr__(self) -> str:
         """
