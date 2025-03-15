@@ -26,23 +26,34 @@ import scipy.stats as st
 
 
 def grunsky_coef(storm_duration: Union[int, float],
+                 expon: float = 0.5,
                  ref_duration: Union[int, float] = 24) -> float:
     """
-    This function computes the duration coefficient
-    given by the Grunsky Formula.
+    This function computes the duration coefficient given by a Grunsky-like
+    Formula. Those formulas state that the duration coefficient is a power
+    law of the storm duration t: 
+
+        Cd (t) = (t / ref) ^ b
+
+    Where "ref" represents the reference duration, typically 24 hours, "t" is
+    the storm duration of interest, and "b" is an empirical parameter.
+    The traditional Grunsky formula assumes b = 0.5 , which is generally valid
+    for cyclonic precipitation on flat terrain. However, for convective
+    rainfall or rainfall on complex terrain, a different value of b may apply.
 
     References:
         ???
 
     Args:
         storm_duration (array_like): storm duration in (hours)
+        expon (float): Exponent of the power law. Defaults to 0.5 (Grunsky).
         ref_duration (array_like): Reference duration (hours).
             Defaults to 24 hr
 
     Returns:
         CD (array_like): Duration coefficient in (dimensionless)
     """
-    CD = np.sqrt(storm_duration/ref_duration)
+    CD = (storm_duration/ref_duration)**expon
     return CD
 
 
