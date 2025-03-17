@@ -248,45 +248,6 @@ class RainStorm(object):
             shyeto = pd.Series(shyeto, index=time_dimless)
         return pd.Series(shyeto, index=time_dimless)
 
-    # def synth_rain(self,
-    #                loc: float, scale: float, flip: bool = False, n: int = 1000,
-    #                **kwargs: Any) -> pd.Series:
-    #     """
-    #     Synthetic hyetograph generator function. If the storm type given
-    #     in the class constructor is part of any of scipy distributions
-    #     the synthetic hyetograph will be built with the given loc, scale
-    #     and scipy default parameters.
-
-    #     Args:
-    #         loc (float, optional): Location parameter for distribution type
-    #             hyetographs. Defaults to 0.5.
-    #         scale (float, optional): Scale parameter for distribution type
-    #             hyetographs. Defaults to 0.1.
-    #         flip (bool): Whether to flip the distribution along the x-axis
-    #             or not. Defaults to False.
-    #         n (int, optional): Number of records in the dimensionless storm
-    #         **kwargs are given to scipy.rv_continuous.pdf
-
-    #     Returns:
-    #         (pandas.Series): Synthetic Hyetograph 1D Table
-    #     """
-    #     time_dimless = np.linspace(0, 1, n)
-    #     kind = self.kind
-    #     scipy_distrs = [d for d in dir(st)
-    #                     if isinstance(getattr(st, d), st.rv_continuous)]
-    #     if kind in scipy_distrs:
-    #         distr = eval(f'st.{kind}')
-    #         shyeto = distr.pdf(time_dimless, loc=loc, scale=scale,
-    #                            **kwargs)
-    #         shyeto = shyeto/np.sum(shyeto)
-    #         if flip:
-    #             shyeto = pd.Series(shyeto[::-1], index=time_dimless)
-    #         else:
-    #             shyeto = pd.Series(shyeto, index=time_dimless)
-    #     else:
-    #         shyeto = SHYETO_DATA[kind]
-    #     return shyeto
-
     def __repr__(self) -> str:
         """
         What to show when invoking a RainStorm object
@@ -330,9 +291,8 @@ class RainStorm(object):
 
         xr_rainfall = obj_to_xarray(rainfall).squeeze()
         dims = {dim: xr_rainfall[dim].shape[0] for dim in xr_rainfall.dims}
-        time1 = np.arange(0, duration, timestep)
-        time2 = np.arange(0, duration+timestep, timestep)
-        time3 = np.arange(0, duration+n*timestep, timestep)
+        time1 = np.arange(0, duration+timestep, timestep)
+        time2 = np.arange(0, duration+n*timestep, timestep)
 
         # Build dimensionless storm (accumulates 1 mm)
         shyeto = obj_to_xarray(self.pr_dimless.cumsum(), dims=('time'),
@@ -343,10 +303,9 @@ class RainStorm(object):
 
         # Build real storm for the given rainfall
         storm = shyeto.expand_dims(dim=dims)*xr_rainfall
-        storm = storm.reindex({'time': time2}).shift({'time': 1})
         storm = storm.diff('time').transpose(*(['time']+list(dims.keys())))
         storm = storm.where(storm >= 0).fillna(0)
-        storm = storm.reindex({'time': time3}).fillna(0)
+        storm = storm.reindex({'time': time2}).fillna(0)
         storm.name = 'pr'
 
         self.pr = storm
@@ -365,27 +324,30 @@ class RainStorm(object):
         """
         self.infiltration = method
         storm = self.pr
+        time = storm.time
         if method == 'SCS':
+            # Grab curve number from keyword arguments
             cn = kwargs['cn']
             kwargs = kwargs.copy()
             kwargs.pop('cn', None)
 
-            storm_cum = storm.cumsum('time')
-            time = np.arange(0, self.duration+self.timestep, self.timestep)
+            # Compute losses
+            storm_cum = storm.cumsum('time')  # Accumulate over time
             losses = xr.apply_ufunc(SCS_Abstractions, storm_cum, cn,
                                     kwargs=kwargs,
                                     input_core_dims=[['time'], []],
                                     output_core_dims=[['time']],
                                     vectorize=True)
-            losses = losses.reindex({'time': time})
             losses = losses.transpose(*storm.dims).diff('time')
+            losses = losses.reindex({'time': time.values})
             losses = losses.where(losses >= 0).fillna(0)
-
-            pr_eff = self.pr-losses
-            pr_eff = pr_eff.where(pr_eff >= 0).fillna(0)
-
-            self.losses = losses
-            self.pr_eff = pr_eff
         else:
             raise ValueError(f'{method} unknown infiltration method.')
+
+        # Define effective precipitation and update variables
+        pr_eff = self.pr-losses
+        pr_eff = pr_eff.where(pr_eff >= 0).fillna(0)
+
+        self.losses = losses
+        self.pr_eff = pr_eff
         return self
