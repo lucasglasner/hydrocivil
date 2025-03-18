@@ -152,8 +152,8 @@ class RainStorm(object):
         -> storm = RainStorm('SCS_I24')
         -> storm = storm.compute(timestep=10/60, duration=24, rainfall=75)
         -> storm = storm.infiltrate(method='SCS', cn=75)
-        -> storm.pr.plot()
-        -> storm.losses.plot()
+        -> storm.pr.plot() # Precipitation rate
+        -> storm.infr.plot() # Infiltration rate
 
         + Create a narrow and wide gaussian pulse of 100 mm in 12 hours
         -> narrow = RainStorm('norm', loc=0.5, scale=0.05)
@@ -191,7 +191,7 @@ class RainStorm(object):
         self.infiltration = None
         self.pr = None
         self.pr_eff = None
-        self.losses = None
+        self.infr = None
 
         if kind in self.PREDEFINED_STORMS:
             self.pr_dimless = self._predefined_hyetograph(kind)
@@ -266,7 +266,7 @@ class RainStorm(object):
         return pycopy.deepcopy(self)
 
     def compute(self, timestep: Union[int, float], duration: Union[int, float],
-                rainfall: ArrayLike, n: int = 1,
+                rainfall: ArrayLike, n: int = 0,
                 interp_kwargs: dict = {'method': 'linear'}
                 ) -> Type['RainStorm']:
         """
@@ -277,9 +277,9 @@ class RainStorm(object):
             timestep (float): Storm timestep or resolution in hours
             duration (float): Storm duration in hours
             rainfall (array_like or float): Total precipitation in mm. 
-            n (int, optional): If n=1 the storm time length will be equal to 
-                the user storm duration. If n>1 it will fill the time index with
-                n zeros. Defaults to 1.
+            n (int, optional): If n=0 the storm time length will be equal to 
+                the user storm duration. If n>0 it will expand the time
+                dimension with zeros n times the user storm duration.
             interp_kwargs (dict): extra arguments for the interpolation function
 
         Returns:
@@ -291,8 +291,8 @@ class RainStorm(object):
 
         xr_rainfall = obj_to_xarray(rainfall).squeeze()
         dims = {dim: xr_rainfall[dim].shape[0] for dim in xr_rainfall.dims}
-        time1 = np.arange(0, duration+timestep, timestep)
-        time2 = np.arange(0, duration+n*timestep, timestep)
+        time1 = np.arange(0, duration+timestep*1e-3, timestep)
+        time2 = np.arange(0, duration+n*duration+timestep*1e-3, timestep)
 
         # Build dimensionless storm (accumulates 1 mm)
         shyeto = obj_to_xarray(self.pr_dimless.cumsum(), dims=('time'),
@@ -300,15 +300,23 @@ class RainStorm(object):
         shyeto = shyeto.interp(coords={'time': np.linspace(0, 1, len(time1))},
                                **interp_kwargs)
         shyeto.coords['time'] = time1
+        shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
 
-        # Build real storm for the given rainfall
-        storm = shyeto.expand_dims(dim=dims)*xr_rainfall
-        storm = storm.diff('time').transpose(*(['time']+list(dims.keys())))
-        storm = storm.where(storm >= 0).fillna(0)
-        storm = storm.reindex({'time': time2}).fillna(0)
-        storm.name = 'pr'
+        # Build real cumulative precipitation for the given rainfall
+        pr_cum = shyeto.expand_dims(dim=dims)*xr_rainfall
+        pr_cum = pr_cum.transpose(*(['time']+list(dims.keys())))
 
-        self.pr = storm
+        # Transform storm time series to a precipitation rate time series
+        pr = pr_cum.diff('time').reindex({'time': time1})/timestep
+        pr = pr.reindex({'time': time2}).fillna(0)
+        pr[0] = pr_cum.isel(time=0)/timestep
+
+        # Metadata
+        pr.name = 'pr'
+        pr.attrs = {'standard_name': 'precipitation rate', 'units': 'mm/hr'}
+        self.pr = pr
+        self.pr_cum = pr_cum
+        self.time = pr.time.values
         return self
 
     def infiltrate(self, method: str = 'SCS', **kwargs: Any
@@ -322,9 +330,14 @@ class RainStorm(object):
         Returns:
             Updated class
         """
+        if self.pr is None:
+            text = f"A storm must be computed before infiltration can "
+            text += "be performed. Use the self.compute method."
+            raise ValueError(text)
+
         self.infiltration = method
-        storm = self.pr
-        time = storm.time
+        pr = self.pr
+        time = self.time
         if method == 'SCS':
             # Grab curve number from keyword arguments
             cn = kwargs['cn']
@@ -332,22 +345,27 @@ class RainStorm(object):
             kwargs.pop('cn', None)
 
             # Compute losses
-            storm_cum = storm.cumsum('time')  # Accumulate over time
-            losses = xr.apply_ufunc(SCS_Abstractions, storm_cum, cn,
-                                    kwargs=kwargs,
-                                    input_core_dims=[['time'], []],
-                                    output_core_dims=[['time']],
-                                    vectorize=True)
-            losses = losses.transpose(*storm.dims).diff('time')
-            losses = losses.reindex({'time': time.values})
-            losses = losses.where(losses >= 0).fillna(0)
+            pr_cum = pr.cumsum('time')*self.timestep  # Accumulate over time
+            infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn,
+                                      kwargs=kwargs,
+                                      input_core_dims=[['time'], []],
+                                      output_core_dims=[['time']],
+                                      vectorize=True)
+            # Compute infiltration rate
+            infr = infr_cum.transpose(*pr.dims).diff('time')
+            infr = infr.reindex({'time': time})/self.timestep
+            infr[0] = infr_cum.isel(time=0)
         else:
             raise ValueError(f'{method} unknown infiltration method.')
 
         # Define effective precipitation and update variables
-        pr_eff = self.pr-losses
+        pr_eff = self.pr-infr
         pr_eff = pr_eff.where(pr_eff >= 0).fillna(0)
 
-        self.losses = losses
+        # Metadata
+        infr.attrs = {'standard_name': 'infiltration rate', 'units': 'mm/hr'}
+        pr_eff.attrs = {'standard_name': 'effective precipitation rate',
+                        'units': 'mm/hr'}
+        self.infr = infr
         self.pr_eff = pr_eff
         return self
