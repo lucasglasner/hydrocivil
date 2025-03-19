@@ -16,7 +16,7 @@ import xarray as xr
 
 from typing import Union, Any, Type
 from numpy.typing import ArrayLike
-from .abstractions import SCS_Abstractions
+from .abstractions import SCS_Abstractions, Horton_Abstractions
 from .global_vars import SHYETO_DATA
 from .misc import obj_to_xarray
 
@@ -355,6 +355,24 @@ class RainStorm(object):
             infr = infr_cum.transpose(*pr.dims).diff('time')
             infr = infr.reindex({'time': time})/self.timestep
             infr[0] = infr_cum.isel(time=0)
+        elif method == 'Horton':
+            # Grab parameters from keyword arguments
+            f0 = kwargs['f0']
+            fc = kwargs['fc']
+            k = kwargs['k']
+            kwargs = kwargs.copy()
+            kwargs.pop('f0', None)
+            kwargs.pop('fc', None)
+            kwargs.pop('k', None)
+
+            # Compute losses
+            infr = xr.apply_ufunc(Horton_Abstractions, pr, time, f0, fc, k,
+                                  kwargs=kwargs,
+                                  input_core_dims=[['time'], ['time'],
+                                                   [], [], []],
+                                  output_core_dims=[['time']],
+                                  vectorize=True)
+            infr = infr.transpose(*pr.dims)
         else:
             raise ValueError(f'{method} unknown infiltration method.')
 

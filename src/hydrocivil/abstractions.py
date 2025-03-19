@@ -14,6 +14,68 @@ from typing import Union
 
 # ----------------------------- Horton equations ----------------------------- #
 
+
+@np.vectorize
+def Horton_Abstractions(pr: float, duration: float, f0: float, fc: float,
+                        k: float) -> float:
+    """
+    Compute infiltration rate using Horton's equation.
+    Based on soil classification, the common parameters used in the SWMM
+    model include:
+
+    | **SCS Soil Group** | **f₀ (mm/h)** | **fc (mm/h)** | **k (1/h)** |
+    |--------------------|---------------|---------------|-------------|
+    | A                  | 250           | 25.4          | 2           |
+    | B                  | 200           | 12.7          | 2           |
+    | C                  | 125           | 6.3           | 2           |
+    | D                  | 76            | 2.5           | 2           |
+
+    Args:
+        pr (float|array): precipitation rate (mm/h)
+        duration (float): Time duration of rainfall event (h)
+        f0 (float): Dry or initial soil hydraulic conductivity (mm/h)
+        fc (float): Saturated soil hydraulic conductivity (mm/h)
+        k (float): Horton's method decay coefficient (1/h)
+
+    Returns:
+        F (float): Cumulative infiltration (mm)
+    """
+    f = fc + (f0 - fc) * np.exp(- k * duration)
+    if pr <= f:
+        f = pr
+    return f
+
+
+@np.vectorize
+def Horton_EffectiveRainfall(pr: float, duration: float, f0: float, fc: float,
+                             k: float) -> float:
+    """
+    Effective precipitation/runoff computation using Horton's model for 
+    infiltration/losses.
+    Based on soil classification, the common parameters used in the SWMM
+    model include:
+
+    | **SCS Soil Group** | **f₀ (mm/h)** | **fc (mm/h)** | **k (1/h)** |
+    |--------------------|---------------|---------------|-------------|
+    | A                  | 250           | 25.4          | 2           |
+    | B                  | 200           | 12.7          | 2           |
+    | C                  | 125           | 6.3           | 2           |
+    | D                  | 76            | 2.5           | 2           |
+
+    Args:
+        pr (float|array): precipitation rate (mm/h)
+        duration (float): Time duration of rainfall event (h)
+        f0 (float): Dry or initial soil hydraulic conductivity (mm/h)
+        fc (float): Saturated soil hydraulic conductivity (mm/h)
+        k (float): Horton's method decay coefficient (1/h)
+
+    Returns:
+        pr_eff (float|array): Effective rainfall depth [mm]
+    """
+    F = Horton_Abstractions(pr, duration, f0, fc, k)
+    pr_eff = pr - F
+    return pr_eff
+
 # -------------------------- Green & Ampt equations -------------------------- #
 
 
