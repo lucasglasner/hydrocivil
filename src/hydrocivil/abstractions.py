@@ -76,6 +76,53 @@ def Horton_EffectiveRainfall(pr: float, duration: float, f0: float, fc: float,
     pr_eff = pr - F
     return pr_eff
 
+# ----------------------------- Philip's Equation ---------------------------- #
+
+
+@np.vectorize
+def Philip_Abstractions(pr: float, duration: float, S: float, K: float
+                        ) -> float:
+    """
+    Compute infiltration rate using Philip's equation.
+
+    Args:
+        pr (float|array): precipitation rate (mm/h)
+        duration (float): Time duration of rainfall event (h)
+        S (float): Adsorption coefficient (mm / h ^ 0.5)
+        K (float): Saturated soil hydraulic conductivity (mm/h)
+
+    Returns:
+        F (float): Cumulative infiltration (mm)
+    """
+    if duration == 0:
+        f = K
+    else:
+        f = 0.5 * S * (duration ** (-1/2)) + K
+    if pr <= f:
+        f = pr
+    return f
+
+
+@np.vectorize
+def Philip_EffectiveRainfall(pr: float, duration: float, S: float, K: float
+                             ) -> float:
+    """
+    Effective precipitation/runoff computation using Philip's model for 
+    infiltration/losses.
+
+    Args:
+        pr (float|array): precipitation rate (mm/h)
+        duration (float): Time duration of rainfall event (h)
+        S (float): Adsorption coefficient (mm/h)
+        K (float): Saturated soil hydraulic conductivity (mm/h)
+
+    Returns:
+        pr_eff (float|array): Effective rainfall depth [mm]
+    """
+    F = Philip_Abstractions(pr, duration, S, K)
+    pr_eff = pr - F
+    return pr_eff
+
 # -------------------------- Green & Ampt equations -------------------------- #
 
 

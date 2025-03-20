@@ -16,7 +16,7 @@ import xarray as xr
 
 from typing import Union, Any, Type
 from numpy.typing import ArrayLike
-from .abstractions import SCS_Abstractions, Horton_Abstractions
+from .abstractions import SCS_Abstractions, Horton_Abstractions, Philip_Abstractions
 from .global_vars import SHYETO_DATA
 from .misc import obj_to_xarray
 
@@ -309,7 +309,6 @@ class RainStorm(object):
         # Transform storm time series to a precipitation rate time series
         pr = pr_cum.diff('time').reindex({'time': time1})/timestep
         pr = pr.reindex({'time': time2}).fillna(0)
-        pr[0] = pr_cum.isel(time=0)/timestep
 
         # Metadata
         pr.name = 'pr'
@@ -318,6 +317,78 @@ class RainStorm(object):
         self.pr_cum = pr_cum
         self.time = pr.time.values
         return self
+
+    def _infiltrate_SCS(self, cn, **kwargs):
+        """
+        Compute infiltration rate using the SCS method.
+
+        Args:
+            cn (array_like or float): Curve Number
+            **kwargs are passed to SCS_Abstractions function
+
+        Returns:
+            (array_like): Infiltration rate [mm/h]
+        """
+        # Compute losses
+        pr_cum = self.pr.cumsum('time')*self.timestep  # Accumulate over time
+        infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn,
+                                  kwargs=kwargs,
+                                  input_core_dims=[['time'], []],
+                                  output_core_dims=[['time']],
+                                  vectorize=True)
+        # Compute infiltration rate
+        infr = infr_cum.transpose(*self.pr.dims).diff('time')
+        infr = infr.reindex({'time': self.time})/self.timestep
+        infr[0] = infr_cum.isel(time=0)
+        return infr
+
+    def _infiltrate_Horton(self, f0, fc, k, **kwargs):
+        """
+        Compute infiltration rate using 3 parameter Horton's method.
+
+        Args:
+            pr (float|array): precipitation rate (mm/h)
+            duration (float): Time duration of rainfall event (h)
+            f0 (float): Dry or initial soil hydraulic conductivity (mm/h)
+            fc (float): Saturated soil hydraulic conductivity (mm/h)
+            k (float): Horton's method decay coefficient (1/h)
+
+        Returns:
+            (array_like): Infiltration rate [mm/h]
+        """
+        # Compute losses
+        infr = xr.apply_ufunc(Horton_Abstractions, self.pr, self.time,
+                              f0, fc, k,
+                              kwargs=kwargs,
+                              input_core_dims=[['time'], ['time'],
+                                               [], [], []],
+                              output_core_dims=[['time']],
+                              vectorize=True)
+        infr = infr.transpose(*self.pr.dims)
+        return infr
+
+    def _infiltrate_Philip(self, S, K, **kwargs):
+        """
+        Compute infiltration rate using 2 parameter Philip's method.
+
+        Args:
+            pr (float|array): precipitation rate (mm/h)
+            duration (float): Time duration of rainfall event (h)
+            S (float): Adsorption coefficient (mm / h ^ 0.5)
+            K (float): Saturated soil hydraulic conductivity (mm/h)
+
+        Returns:
+            (array_like): Infiltration rate [mm/h]
+        """
+        # Compute losses
+        infr = xr.apply_ufunc(Philip_Abstractions, self.pr, self.time, S, K,
+                              kwargs=kwargs,
+                              input_core_dims=[['time'], ['time'],
+                                               [], []],
+                              output_core_dims=[['time']],
+                              vectorize=True)
+        infr = infr.transpose(*self.pr.dims)
+        return infr
 
     def infiltrate(self, method: str = 'SCS', **kwargs: Any
                    ) -> Type['RainStorm']:
@@ -336,8 +407,6 @@ class RainStorm(object):
             raise ValueError(text)
 
         self.infiltration = method
-        pr = self.pr
-        time = self.time
         if method == 'SCS':
             # Grab curve number from keyword arguments
             cn = kwargs['cn']
@@ -345,16 +414,7 @@ class RainStorm(object):
             kwargs.pop('cn', None)
 
             # Compute losses
-            pr_cum = pr.cumsum('time')*self.timestep  # Accumulate over time
-            infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn,
-                                      kwargs=kwargs,
-                                      input_core_dims=[['time'], []],
-                                      output_core_dims=[['time']],
-                                      vectorize=True)
-            # Compute infiltration rate
-            infr = infr_cum.transpose(*pr.dims).diff('time')
-            infr = infr.reindex({'time': time})/self.timestep
-            infr[0] = infr_cum.isel(time=0)
+            infr = self._infiltrate_SCS(cn=cn, **kwargs)
         elif method == 'Horton':
             # Grab parameters from keyword arguments
             f0 = kwargs['f0']
@@ -364,15 +424,16 @@ class RainStorm(object):
             kwargs.pop('f0', None)
             kwargs.pop('fc', None)
             kwargs.pop('k', None)
+            infr = self._infiltrate_Horton(f0=f0, fc=fc, k=k, **kwargs)
 
-            # Compute losses
-            infr = xr.apply_ufunc(Horton_Abstractions, pr, time, f0, fc, k,
-                                  kwargs=kwargs,
-                                  input_core_dims=[['time'], ['time'],
-                                                   [], [], []],
-                                  output_core_dims=[['time']],
-                                  vectorize=True)
-            infr = infr.transpose(*pr.dims)
+        elif method == 'Philip':
+            # Grab parameters from keyword arguments
+            S = kwargs['S']
+            K = kwargs['K']
+            kwargs = kwargs.copy()
+            kwargs.pop('S', None)
+            kwargs.pop('K', None)
+            infr = self._infiltrate_Philip(S=S, K=K, **kwargs)
         else:
             raise ValueError(f'{method} unknown infiltration method.')
 
