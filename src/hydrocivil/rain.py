@@ -16,7 +16,8 @@ import xarray as xr
 
 from typing import Union, Any, Type
 from numpy.typing import ArrayLike
-from .abstractions import SCS_Abstractions, Horton_Abstractions, Philip_Abstractions
+from .abstractions import SCS_Abstractions, Horton_Abstractions
+from .abstractions import Philip_Abstractions, GreenAmpt_Abstractions
 from .global_vars import SHYETO_DATA
 from .misc import obj_to_xarray
 
@@ -390,6 +391,33 @@ class RainStorm(object):
         infr = infr.transpose(*self.pr.dims)
         return infr
 
+    def _infiltrate_GreenAmpt(self, K: float, p: float, theta_s: float,
+                              psi: float, h0: float = 10, **kwargs) -> float:
+        """
+        Compute infiltration rate using Green & Ampt soil model.
+
+        Args:
+            K (float): Saturated soil hydraulic conductivity (mm/h)
+            p (float): Soil porosity (-)
+            theta_s (float): Soil fractional moisture (-)
+            psi (float): Soil suction (mm). Highly dependant of soil moisture.
+            h0 (float): water depth above the soil column (mm).
+            Default to 10 mm. 
+
+        Returns:
+            (array_like): Infiltration rate [mm/h]
+        """
+        # Compute losses
+        infr = xr.apply_ufunc(GreenAmpt_Abstractions, self.pr, self.time,
+                              K, p, theta_s, psi, h0,
+                              kwargs=kwargs,
+                              input_core_dims=[['time'], ['time'],
+                                               [], [], [], [], []],
+                              output_core_dims=[['time']],
+                              vectorize=True)
+        infr = infr.transpose(*self.pr.dims)
+        return infr
+
     def infiltrate(self, method: str = 'SCS', **kwargs: Any
                    ) -> Type['RainStorm']:
         """
@@ -415,6 +443,7 @@ class RainStorm(object):
 
             # Compute losses
             infr = self._infiltrate_SCS(cn=cn, **kwargs)
+
         elif method == 'Horton':
             # Grab parameters from keyword arguments
             f0 = kwargs['f0']
@@ -434,6 +463,25 @@ class RainStorm(object):
             kwargs.pop('S', None)
             kwargs.pop('K', None)
             infr = self._infiltrate_Philip(S=S, K=K, **kwargs)
+
+        elif method == 'GreenAmpt':
+            # Grab parameters from keyword arguments
+            K = kwargs['K']
+            p = kwargs['p']
+            theta_s = kwargs['theta_s']
+            psi = kwargs['psi']
+            if 'h0' in kwargs.keys():
+                h0 = kwargs['h0']
+            else:
+                h0 = 10.
+            kwargs = kwargs.copy()
+            kwargs.pop('K', None)
+            kwargs.pop('p', None)
+            kwargs.pop('theta_s', None)
+            kwargs.pop('psi', None)
+            kwargs.pop('h0', None)
+            infr = self._infiltrate_GreenAmpt(K=K, p=p, theta_s=theta_s,
+                                              psi=psi, h0=h0, **kwargs)
         else:
             raise ValueError(f'{method} unknown infiltration method.')
 

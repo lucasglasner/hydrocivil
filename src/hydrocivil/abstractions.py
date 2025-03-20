@@ -7,6 +7,7 @@
  Dependencies:
 '''
 
+from scipy.optimize import root_scalar
 import pandas as pd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -38,7 +39,7 @@ def Horton_Abstractions(pr: float, duration: float, f0: float, fc: float,
         k (float): Horton's method decay coefficient (1/h)
 
     Returns:
-        F (float): Cumulative infiltration (mm)
+        f (float): Infiltration rate (mm/h)
     """
     f = fc + (f0 - fc) * np.exp(- k * duration)
     if pr <= f:
@@ -70,7 +71,7 @@ def Horton_EffectiveRainfall(pr: float, duration: float, f0: float, fc: float,
         k (float): Horton's method decay coefficient (1/h)
 
     Returns:
-        pr_eff (float|array): Effective rainfall depth [mm]
+        pr_eff (float|array): Effective precipitation rate (mm/h)
     """
     F = Horton_Abstractions(pr, duration, f0, fc, k)
     pr_eff = pr - F
@@ -92,7 +93,7 @@ def Philip_Abstractions(pr: float, duration: float, S: float, K: float
         K (float): Saturated soil hydraulic conductivity (mm/h)
 
     Returns:
-        F (float): Cumulative infiltration (mm)
+        f (float): Infiltration rate (mm/h)
     """
     if duration == 0:
         f = K
@@ -117,14 +118,97 @@ def Philip_EffectiveRainfall(pr: float, duration: float, S: float, K: float
         K (float): Saturated soil hydraulic conductivity (mm/h)
 
     Returns:
-        pr_eff (float|array): Effective rainfall depth [mm]
+        pr_eff (float|array): Effective precipitation rate (mm/h)
     """
     F = Philip_Abstractions(pr, duration, S, K)
     pr_eff = pr - F
     return pr_eff
 
+
 # -------------------------- Green & Ampt equations -------------------------- #
 
+
+@np.vectorize
+def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
+                           theta_s: float, psi: float, h0: float = 10
+                           ) -> float:
+    """
+    Compute infiltration rate using Green & Ampt's equation. The equation 
+    to solve is the following implicit equation:
+
+    F (t) = K*t + (p-theta_s)*(h0+psi)*ln (1+F/(p-theta_s)/(h0 + psi))
+
+    which is solved using the Newton-Raphson method.
+
+    Args:
+        pr (float|array): precipitation rate (mm/h)
+        duration (float): Time duration of rainfall event (h)
+        K (float): Saturated soil hydraulic conductivity (mm/h)
+        p (float): Soil porosity (-)
+        theta_s (float): Soil fractional moisture (-)
+        psi (float): Soil suction (mm). Highly dependant of soil moisture.
+        h0 (float): water depth above the soil column (mm). Default to 10 mm. 
+
+
+    Returns:
+        F (float): Infiltration rate (mm/h)
+    """
+    if theta_s > p:
+        text = f'theta_s: {theta_s} > porosity: {p}. '
+        text += f'Soil cant have more moisture than the aviable void space!'
+        raise ValueError(text)
+
+    c1 = (p - theta_s)
+    c2 = (h0 + psi)
+
+    def _rootfunc(F):
+        """
+        Root finding function defined to solve with newton-raphson method.
+        Right side minus left side of the Green & Ampt iterative function. 
+        """
+        return K * duration + c1 * c2 * np.log(1 + F/c1/c2) - F
+
+    def _rootfunc_diff(F):
+        """
+        Derivative of the root finding function.
+        """
+        return c1*c2/(c1*c2 + F) - 1
+
+    # Solve with Green & Ampt equation using Newton-Raphson method.
+    if duration == 0 or (p-theta_s) == 0:
+        f = K
+    else:
+        F = root_scalar(_rootfunc, x0=K*duration, fprime=_rootfunc_diff,
+                        method='newton')
+        f = K * (1 + c1 * c2 / F.root)
+    if pr <= f:
+        f = pr
+    return f
+
+
+@np.vectorize
+def GreenAmpt_EffectiveRainfall(pr: float, duration: float, K: float, p: float,
+                                theta_s: float, psi: float, h0: float = 10
+                                ) -> float:
+    """
+    Effective precipitation/runoff computation using GreenAmpt's model for 
+    infiltration/losses.
+
+    Args:
+        pr (float|array): precipitation rate (mm/h)
+        duration (float): Time duration of rainfall event (h)
+        K (float): Saturated soil hydraulic conductivity (mm/h)
+        p (float): Soil porosity (-)
+        theta_s (float): Soil fractional moisture (-)
+        psi (float): Soil suction (mm). Highly dependant of soil moisture.
+        h0 (float): water depth above the soil column (mm). Default to 10 mm. 
+
+    Returns:
+        pr_eff (float|array): Effective precipitation rate (mm/h)
+    """
+    F = GreenAmpt_Abstractions(pr, duration, K, p, theta_s, psi, h0)
+    pr_eff = pr - F
+    return pr_eff
 
 # ------------------------ SCS curve number equations ------------------------ #
 
