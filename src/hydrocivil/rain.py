@@ -319,7 +319,7 @@ class RainStorm(object):
         self.time = pr.time.values
         return self
 
-    def _infiltrate_SCS(self, cn, **kwargs):
+    def _infiltrate_SCS(self, cn: float, **kwargs):
         """
         Compute infiltration rate using the SCS method.
 
@@ -343,7 +343,7 @@ class RainStorm(object):
         infr[0] = infr_cum.isel(time=0)
         return infr
 
-    def _infiltrate_Horton(self, f0, fc, k, **kwargs):
+    def _infiltrate_Horton(self, f0: float, fc: float, k: float, **kwargs):
         """
         Compute infiltration rate using 3 parameter Horton's method.
 
@@ -368,7 +368,7 @@ class RainStorm(object):
         infr = infr.transpose(*self.pr.dims)
         return infr
 
-    def _infiltrate_Philip(self, S, K, **kwargs):
+    def _infiltrate_Philip(self, S: float, K: float, **kwargs):
         """
         Compute infiltration rate using 2 parameter Philip's method.
 
@@ -392,7 +392,7 @@ class RainStorm(object):
         return infr
 
     def _infiltrate_GreenAmpt(self, K: float, p: float, theta_s: float,
-                              psi: float, h0: float = 10, **kwargs) -> float:
+                              psi: float, h0: float = 10, **kwargs):
         """
         Compute infiltration rate using Green & Ampt soil model.
 

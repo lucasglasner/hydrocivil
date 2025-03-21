@@ -151,7 +151,7 @@ def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
 
 
     Returns:
-        F (float): Infiltration rate (mm/h)
+        f (float): Infiltration rate (mm/h)
     """
     if theta_s > p:
         text = f'theta_s: {theta_s} > porosity: {p}. '
