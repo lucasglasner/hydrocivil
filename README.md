@@ -61,7 +61,7 @@ storm = storm.compute(timestep=0.5, duration=24, rainfall=100)
 storm = storm.infiltrate(method='SCS', cn=wshed.params.loc['curvenumber'].item())
 
 storm.pr.to_series().plot(kind='bar', width=1, ec='k')
-storm.losses.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
+storm.infr.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
 ```
 
     <Axes: >
@@ -74,8 +74,8 @@ storm.losses.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
 # Compute the basin SCS unit hydrograph for the storm (UH related to the storm timestep)
 wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph. 
 
-# Compute the flood hydrograph as the convolution of the design storm with the unit hydrograph
-wshed.UnitHydro.convolve(storm.pr_eff).plot()
+# Compute the flood hydrograph as the convolution of the effective precipitation depth with the unit hydrograph
+wshed.UnitHydro.convolve(storm.pr_eff * storm.timestep).plot()
 ```
 
     <Axes: >

@@ -27,8 +27,8 @@ import scipy.stats as st
 
 
 def grunsky_coef(storm_duration: Union[int, float],
-                 expon: float = 0.5,
-                 ref_duration: Union[int, float] = 24) -> float:
+                 ref_duration: Union[int, float] = 24,
+                 expon: float = 0.5,) -> float:
     """
     This function computes the duration coefficient given by a Grunsky-like
     Formula. Those formulas state that the duration coefficient is a power

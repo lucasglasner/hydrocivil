@@ -23,6 +23,50 @@ from .abstractions import SCS_MaximumRetention
 # ------------------------ Geomorphological properties ----------------------- #
 
 
+def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph:
+    """
+    Generate a networkx directed graph following a geodataframe with river
+    segments. 
+
+    Args:
+        gdf_segments (gpd.GeoDataFrame): River segments.
+        multigraph (bool, optional): Whether to build the graph as a 
+        multigraph or not. A multigraph accepts multiple edges between node
+        so it is suitable only for braided rivers. Defaults to False.
+
+    Returns:
+        (nx.DiGraph): River network represented as a directed acyclic graph.
+    """
+    # Explode geodataframe into all possible segments and compute segment length
+    gdf_segments = gdf_segments.explode(index_parts=False)
+    gdf_segments = gdf_segments.reset_index(drop=True)
+    gdf_segments['length'] = gdf_segments.geometry.length
+
+    # Create a networkx directed acyclic graph with edge attributes
+    G = nx.MultiDiGraph() if multigraph else nx.DiGraph()
+    G.graph["crs"] = gdf_segments.crs
+
+    key = 0
+    for ids, row in zip(gdf_segments.index, gdf_segments.itertuples()):
+        first = row.geometry.coords[0]
+        last = row.geometry.coords[-1]
+
+        data = [r for r in row][1:]
+        attributes = dict(zip(gdf_segments.columns, data))
+        if multigraph:
+            G.add_edge(first, last, segment_id=ids, key=key, **attributes)
+            key += 1
+        else:
+            G.add_edge(first, last, segment_id=ids, **attributes)
+
+    # Assign a topological order
+    topo_order = list(nx.topological_sort(G))
+    node_topo_order = {node: i for i, node in enumerate(topo_order)}
+    edge_topo_order = {(u, v): node_topo_order[u] for u, v in G.edges()}
+    nx.set_edge_attributes(G, edge_topo_order, "topological_order")
+    return G, gdf_segments
+
+
 def get_main_river(river_network: Union[gpd.GeoSeries, gpd.GeoDataFrame]
                    ) -> Union[gpd.GeoSeries, gpd.GeoDataFrame]:
     """
@@ -35,22 +79,17 @@ def get_main_river(river_network: Union[gpd.GeoSeries, gpd.GeoDataFrame]
     Returns:
         (GeoDataFrame): Main river extracted from the river network
     """
-    # Get network connectivity information
-    river_network = river_network.explode(index_parts=False)
-    start_node = river_network.geometry.apply(lambda g: Point(g.coords[0]))
-    end_node = river_network.geometry.apply(lambda g: Point(g.coords[-1]))
-    weight = river_network.length
-    ids = river_network.index
-
     # Create River Network Graph
-    G = nx.DiGraph()
-    for n, a, b, w in zip(ids, start_node, end_node, weight):
-        G.add_edge(a, b, index=n, weight=w)
+    G, gdf_segments = rivers2graph(river_network)
 
     # Get the main river segments
-    main_river = nx.dag_longest_path(G)
-    mask = start_node.isin(main_river)
-    main_river = river_network.loc[mask]
+    mriver_nodes = nx.dag_longest_path(G, weight='length')
+    mriver_edges = list(zip(mriver_nodes[:-1], mriver_nodes[1:]))
+    mask = [G.edges[edge]['segment_id'] for edge in mriver_edges]
+    main_river = gdf_segments.loc[mask]
+
+    top_order = [G.edges[edge]['topological_order'] for edge in mriver_edges]
+    main_river['topological_order'] = top_order
     return main_river
 
 
