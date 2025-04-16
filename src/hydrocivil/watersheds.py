@@ -23,9 +23,9 @@ from typing import Union, Any, Type, Tuple
 from osgeo import gdal, gdal_array
 from scipy.interpolate import interp1d
 
-from .misc import raster_distribution, polygonize, gdal2xarray, xarray2gdal
+from .misc import raster_distribution, polygonize
 from .unithydrographs import LumpedUnitHydrograph as SUH
-from .geomorphology import get_main_river, basin_outlet
+from .geomorphology import get_main_river, basin_outlet, process_gdaldem
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .global_vars import GDAL_EXCEPTIONS, _has_whitebox
 from .abstractions import cn_correction
@@ -39,7 +39,7 @@ else:
 # ---------------------------------------------------------------------------- #
 
 
-class RiverBasin(object):
+class RiverBasin():
     """
     The RiverBasin class represents a hydrological basin and provides methods 
     to compute various geomorphological, hydrological, and terrain properties. 
@@ -176,231 +176,6 @@ class RiverBasin(object):
         text = text+f'Parameters: {param_text}'
         return text
 
-    def _process_gdaldem(self, varname: str, **kwargs: Any) -> xr.Dataset:
-        """
-        Processes a Digital Elevation Model (DEM) using the GDAL DEMProcessing
-        utility. This method utilizes the GDAL DEMProcessing command line
-        utility to derive various properties from a DEM. The output is returned
-        as an xarray Dataset.
-
-        Args:
-            varname (str): The name of the DEM derived property to compute.
-            **kwargs (Any): Additional keyword arguments to pass to the GDAL
-                DEMProcessing function.
-
-        Returns:
-            xr.Dataset: An xarray Dataset containing the DEM derived property.
-        """
-        dem_xr = self.dem.elevation
-        dem_gdal = xarray2gdal(dem_xr)
-
-        # Create in-memory output GDAL dataset
-        dtype = gdal_array.NumericTypeCodeToGDALTypeCode(dem_xr.dtype)
-        mem_driver = gdal.GetDriverByName('MEM')
-        out_ds = mem_driver.Create('', dem_xr.sizes['x'], dem_xr.sizes['y'], 1,
-                                   dtype)
-        out_ds.SetGeoTransform(dem_xr.rio.transform().to_gdal())
-        out_ds.SetProjection(dem_xr.rio.crs.to_wkt())
-
-        # Process DEM using gdal.DEMProcessing
-        out_ds = gdal.DEMProcessing(out_ds.GetDescription(), dem_gdal, varname,
-                                    format='MEM', computeEdges=True, **kwargs)
-        out_ds = gdal2xarray(out_ds).to_dataset(name=varname)
-        out_ds.coords['y'] = dem_xr.coords['y']
-        out_ds.coords['x'] = dem_xr.coords['x']
-        return out_ds
-
-    def _processgeography(self, n: int = 3,
-                          **kwargs: Any) -> Type['RiverBasin']:
-        """
-        Compute geographical parameters of the basin
-
-        Args:
-            n (int, optional): Number of DEM pixels to consider for the
-                elevation boundary. Defaults to 3.
-            **kwargs are given to basin_geographical_params function.
-
-        Returns:
-            self: updated class
-        """
-        try:
-            c1 = 'outlet_x' not in self.basin.columns
-            c2 = 'outlet_y' not in self.basin.columns
-            if c1 or c2:
-                outlet_y, outlet_x = self._get_basinoutlet(n=n)
-            else:
-                c3 = self.basin['outlet_x'].item() is None
-                c4 = self.basin['outlet_y'].item() is None
-                if c3 or c4:
-                    outlet_y, outlet_x = self._get_basinoutlet(n=n)
-
-            geo_params = basin_geographical_params(self.fid, self.basin,
-                                                   **kwargs)
-        except Exception as e:
-            geo_params = pd.DataFrame([], index=[self.fid])
-            warnings.warn('Geographical Parameters Error:'+f'{e}')
-        self.params = pd.concat([self.params, geo_params], axis=1)
-        return self
-
-    def _processdem(self, preprocess: bool = True) -> Type['RiverBasin']:
-        """
-        Processes the Digital Elevation Model (DEM) to compute the hypsometric
-        curve, slope, and aspect. Then computes DEM-derived properties for the
-        basin and saves them in the params dataframe.
-        Args:
-            preprocess (bool): If True, preprocess the DEM to compute
-                hypsometric curve, slope, and aspect.
-            RiverBasin: The updated class instance with computed
-                DEM properties.
-        """
-        try:
-            if preprocess:
-                curve = self.get_hypsometric_curve()
-                slope = self._process_gdaldem('slope', slopeFormat='percent')
-                aspect = self._process_gdaldem('aspect')
-
-                slope = slope.where(slope != -9999)
-                aspect = aspect.where(aspect != -9999)
-
-                self.dem = xr.merge([self.dem.elevation, slope/100, aspect])
-                self.dem.attrs = {
-                    'standard_name': 'terrain model',
-                    'hypsometry_x': [f'{i:.2f}' for i in curve.index],
-                    'hypsometry_y': [f'{j:3f}' for j in curve.values]
-                }
-            # DEM derived params
-            terrain_params = basin_terrain_params(self.fid, self.dem)
-            exp = terrain_params.T.index.map(lambda x: 'exposure' in x)
-            self.exposure_distribution = terrain_params.T[exp]
-        except Exception as e:
-            terrain_params = pd.DataFrame([], index=[self.fid])
-            warnings.warn('PostProcess DEM Error:'+f'{e}')
-        self.params = pd.concat([self.params, terrain_params], axis=1)
-        return self
-
-    def _get_dem_resolution(self) -> float:
-        """
-        Compute DEM maximum resolution
-        Returns:
-            (float): raster resolution
-        """
-        dx = self.dem.elevation.x.diff('x')[0].item()
-        dy = self.dem.elevation.y.diff('y')[0].item()
-        return abs(max(dx, dy))
-
-    def _processrivers(self, preprocess_rivers: bool = False,
-                       **kwargs,
-                       ) -> Type['RiverBasin']:
-        """
-        Compute river network properties
-        Args:
-            preprocess_rivers (bool, optional): Whether to compute 
-                river network from given DEM. Requires whitebox_workflows
-                package. Defaults to False.
-            **kwargs: Additional arguments for the river network preprocessing
-                function.
-        Returns:
-            self: updated class
-        """
-        # Flow derived params
-        if self.rivers is None and preprocess_rivers and _has_whitebox:
-            from .wb_tools import wbDEMpreprocess
-            rasters, rivers = wbDEMpreprocess(self.dem.elevation,
-                                              return_streams=True,
-                                              raster2xarray=True,
-                                              **kwargs)
-            self.dem = xr.merge([self.dem]+rasters)
-            self.rivers = rivers
-        try:
-            # Main river
-            mainriver = get_main_river(self.rivers)
-            self.rivers_main = mainriver
-
-            # Main river stats
-            mriverlen = self.rivers_main.length.sum()/1e3
-            if mriverlen.item() != 0:
-                mriverlen = mriverlen.item()
-                dx = self._get_dem_resolution()
-                geom = mainriver.buffer(dx).geometry
-                mriverslope = self.dem.slope.rio.clip(geom).mean().item()
-            else:
-                mriverlen = np.nan
-                mriverslope = np.nan
-            self.params['mriverlen'] = mriverlen
-            self.params['mriverslope'] = mriverslope
-        except Exception as e:
-            warnings.warn('Flow derived properties Error: ' + f'{e}')
-        return self
-
-    def _processrastercounts(self, raster: xr.DataArray, output_type: int = 1
-                             ) -> pd.DataFrame:
-        """
-        Computes area distributions of rasters (% of the basin area with the
-        X raster property)
-        Args:
-            raster (xarray.DataArray): Raster with basin properties
-                (e.g land cover classes, soil types, etc)
-            output_type (int, optional): Output type:
-                Option 1: 
-                    Returns a table with this format:
-                    +-------+----------+----------+
-                    | INDEX | PROPERTY | FRACTION |
-                    +-------+----------+----------+
-                    |     0 | A        |          |
-                    |     1 | B        |          |
-                    |     2 | C        |          |
-                    +-------+----------+----------+
-
-                Option 2:
-                    Returns a table with this format:
-                    +-------------+----------+
-                    |    INDEX    | FRACTION |
-                    +-------------+----------+
-                    | fPROPERTY_A |          |
-                    | fPROPERTY_B |          |
-                    | fPROPERTY_C |          |
-                    +-------------+----------+
-
-                Defaults to 1.
-        Returns:
-            counts (pandas.DataFrame): Results table
-        """
-        try:
-            counts = raster.to_series().value_counts()
-            counts = counts/counts.sum()
-            counts.name = self.fid
-            if output_type == 1:
-                counts = counts.reset_index().rename({self.fid: 'weights'},
-                                                     axis=1)
-            elif output_type == 2:
-                counts.index = [f'f{raster.name}_{i}' for i in counts.index]
-                counts = pd.DataFrame(counts)
-            else:
-                raise RuntimeError(f'{output_type} must only be 1 or 2.')
-        except Exception as e:
-            counts = pd.DataFrame([], columns=[self.fid],
-                                  index=[0])
-            warnings.warn('Raster counting Error:'+f'{e}')
-        return counts
-
-    def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        This function computes the basin outlet point defined as the
-        point of minimum elevation along the basin boundary.
-
-        Args:
-            n (int, optional): Number of DEM pixels to consider for the
-                elevation boundary. Defaults to 3.
-
-        Returns:
-            outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
-                coordinates.
-        """
-        outlet_y, outlet_x = basin_outlet(self.basin, self.dem.elevation, n=n)
-        self.basin['outlet_x'] = outlet_x
-        self.basin['outlet_y'] = outlet_y
-        return (outlet_y, outlet_x)
-
     def copy(self) -> Type['RiverBasin']:
         """
         Create a deep copy of the class itself
@@ -465,6 +240,198 @@ class RiverBasin(object):
             return 1
         interp_func = interp1d(curve.index.values, curve.values)
         return interp_func(height).item()
+
+    def _get_dem_resolution(self) -> float:
+        """
+        Compute DEM maximum resolution
+        Returns:
+            (float, float): raster resolution in the x-y directions
+        """
+        dx = abs(self.dem.elevation.x.diff('x')[0].item())
+        dy = abs(self.dem.elevation.y.diff('y')[0].item())
+        return (dx, dy)
+
+    def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        This function computes the basin outlet point defined as the
+        point of minimum elevation along the basin boundary.
+
+        Args:
+            n (int, optional): Number of DEM pixels to consider for the
+                elevation boundary. Defaults to 3.
+
+        Returns:
+            outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
+                coordinates.
+        """
+        outlet_y, outlet_x = basin_outlet(self.basin, self.dem.elevation, n=n)
+        self.basin['outlet_x'] = outlet_x
+        self.basin['outlet_y'] = outlet_y
+        return (outlet_y, outlet_x)
+
+    def _processgeography(self, n: int = 3,
+                          **kwargs: Any) -> Type['RiverBasin']:
+        """
+        Compute geographical parameters of the basin
+
+        Args:
+            n (int, optional): Number of DEM pixels to consider for the
+                elevation boundary. Defaults to 3.
+            **kwargs are given to basin_geographical_params function.
+
+        Returns:
+            self: updated class
+        """
+        try:
+            c1 = 'outlet_x' not in self.basin.columns
+            c2 = 'outlet_y' not in self.basin.columns
+            if c1 or c2:
+                self._get_basinoutlet(n=n)
+            else:
+                c3 = self.basin['outlet_x'].item() is None
+                c4 = self.basin['outlet_y'].item() is None
+                if c3 or c4:
+                    self._get_basinoutlet(n=n)
+
+            geoparams = basin_geographical_params(self.fid, self.basin,
+                                                  **kwargs)
+        except Exception as e:
+            geoparams = pd.DataFrame([], index=[self.fid])
+            warnings.warn('Geographical Parameters Error:'+f'{e}')
+        self.params = pd.concat([self.params, geoparams], axis=1)
+        return self
+
+    def _processdem(self, preprocess: bool = True) -> Type['RiverBasin']:
+        """
+        Processes the Digital Elevation Model (DEM) to compute the hypsometric
+        curve, slope, and aspect. Then computes DEM-derived properties for the
+        basin and saves them in the params dataframe.
+        Args:
+            preprocess (bool): If True, preprocess the DEM to compute
+                hypsometric curve, slope, and aspect.
+            RiverBasin: The updated class instance with computed
+                DEM properties.
+        """
+        try:
+            if preprocess:
+                dem = self.dem.elevation
+                curve = self.get_hypsometric_curve()
+                slope = process_gdaldem(dem, 'slope', slopeFormat='percent')
+                aspect = process_gdaldem(dem, 'aspect')
+
+                slope = slope.where(slope != -9999)
+                aspect = aspect.where(aspect != -9999)
+
+                self.dem = xr.merge([self.dem.elevation, slope/100, aspect])
+                self.dem.attrs = {
+                    'standard_name': 'terrain model',
+                    'hypsometry_x': [f'{i:.2f}' for i in curve.index],
+                    'hypsometry_y': [f'{j:3f}' for j in curve.values]
+                }
+            # DEM derived params
+            terrain_params = basin_terrain_params(self.fid, self.dem)
+            exp = terrain_params.T.index.map(lambda x: 'exposure' in x)
+            self.exposure_distribution = terrain_params.T[exp]
+        except Exception as e:
+            terrain_params = pd.DataFrame([], index=[self.fid])
+            warnings.warn('PostProcess DEM Error:'+f'{e}')
+        self.params = pd.concat([self.params, terrain_params], axis=1)
+        return self
+
+    def _processrivers(self, preprocess_rivers: bool = False,
+                       **kwargs,
+                       ) -> Type['RiverBasin']:
+        """
+        Compute river network properties
+        Args:
+            preprocess_rivers (bool, optional): Whether to compute 
+                river network from given DEM. Requires whitebox_workflows
+                package. Defaults to False.
+            **kwargs: Additional arguments for the river network preprocessing
+                function.
+        Returns:
+            self: updated class
+        """
+        # Flow derived params
+        if self.rivers is None and preprocess_rivers and _has_whitebox:
+            from .wb_tools import wbDEMpreprocess
+            rasters, rivers = wbDEMpreprocess(self.dem.elevation,
+                                              return_streams=True,
+                                              raster2xarray=True,
+                                              **kwargs)
+            self.dem = xr.merge([self.dem]+rasters)
+            self.rivers = rivers
+        try:
+            # Main river
+            mainriver = get_main_river(self.rivers)
+            self.rivers_main = mainriver
+
+            # Main river stats
+            mriverlen = self.rivers_main.length.sum()/1e3
+            if mriverlen.item() != 0:
+                mriverlen = mriverlen.item()
+                dx, dy = self._get_dem_resolution()
+                geom = mainriver.buffer(max((dx, dy))).geometry
+                mriverslope = self.dem.slope.rio.clip(geom).mean().item()
+            else:
+                mriverlen = np.nan
+                mriverslope = np.nan
+            self.params['mriverlen'] = mriverlen
+            self.params['mriverslope'] = mriverslope
+        except Exception as e:
+            warnings.warn('Flow derived properties Error: ' + f'{e}')
+        return self
+
+    def _processrastercounts(self, raster: xr.DataArray, output_type: int = 1
+                             ) -> pd.DataFrame:
+        """
+        Computes area distributions of rasters (% of the basin area with the
+        X raster property)
+        Args:
+            raster (xarray.DataArray): Raster with basin properties
+                (e.g land cover classes, soil types, etc)
+            output_type (int, optional): Output type:
+                Option 1: 
+                    Returns a table with this format:
+                    +-------+----------+----------+
+                    | INDEX | PROPERTY | FRACTION |
+                    +-------+----------+----------+
+                    |     0 | A        |          |
+                    |     1 | B        |          |
+                    |     2 | C        |          |
+                    +-------+----------+----------+
+
+                Option 2:
+                    Returns a table with this format:
+                    +-------------+----------+
+                    |    INDEX    | FRACTION |
+                    +-------------+----------+
+                    | fPROPERTY_A |          |
+                    | fPROPERTY_B |          |
+                    | fPROPERTY_C |          |
+                    +-------------+----------+
+
+                Defaults to 1.
+        Returns:
+            counts (pandas.DataFrame): Results table
+        """
+        try:
+            counts = raster.to_series().value_counts()
+            counts = counts/counts.sum()
+            counts.name = self.fid
+            if output_type == 1:
+                counts = counts.reset_index().rename({self.fid: 'weights'},
+                                                     axis=1)
+            elif output_type == 2:
+                counts.index = [f'f{raster.name}_{i}' for i in counts.index]
+                counts = pd.DataFrame(counts)
+            else:
+                raise RuntimeError(f'{output_type} must only be 1 or 2.')
+        except Exception as e:
+            counts = pd.DataFrame([], columns=[self.fid],
+                                  index=[0])
+            warnings.warn('Raster counting Error:'+f'{e}')
+        return counts
 
     def get_equivalent_curvenumber(self,
                                    pr_range: Tuple[float, float] = (1., 1000.),

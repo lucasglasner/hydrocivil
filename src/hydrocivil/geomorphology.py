@@ -16,11 +16,51 @@ import warnings
 from typing import Union, Any, Tuple
 from numpy.typing import ArrayLike
 from shapely.geometry import Point
+from osgeo import gdal, gdal_array
 import networkx as nx
 
+from .misc import gdal2xarray, xarray2gdal
 from .abstractions import SCS_MaximumRetention
 
 # ------------------------ Geomorphological properties ----------------------- #
+
+
+def process_gdaldem(dem: xr.DataArray, varname: str, **kwargs: Any
+                    ) -> xr.DataArray:
+    """
+    Processes a Digital Elevation Model (DEM) using the GDAL DEMProcessing
+    utility. This method utilizes the GDAL DEMProcessing command line
+    utility to derive various properties from a DEM. The output is returned
+    as an xarray Dataset.
+
+    Args:
+        dem (xr.DataArray): Digital elevation model
+        varname (str): The name of the DEM derived property to compute.
+            Options include: 'hillshade', 'slope', 'aspect', 'color-relief',
+            'TRI', 'TPI', 'Roughness'
+        **kwargs (Any): Additional keyword arguments to pass to the GDAL
+            DEMProcessing https://gdal.org/en/stable/programs/gdaldem.html. 
+
+    Returns:
+        xr.Dataset: An xarray Dataset containing the DEM derived property.
+    """
+    dem_gdal = xarray2gdal(dem)
+
+    # Create in-memory output GDAL dataset
+    dtype = gdal_array.NumericTypeCodeToGDALTypeCode(dem.dtype)
+    mem_driver = gdal.GetDriverByName('MEM')
+    out_ds = mem_driver.Create('', dem.sizes['x'], dem.sizes['y'], 1,
+                               dtype)
+    out_ds.SetGeoTransform(dem.rio.transform().to_gdal())
+    out_ds.SetProjection(dem.rio.crs.to_wkt())
+
+    # Process DEM using gdal.DEMProcessing
+    out_ds = gdal.DEMProcessing(out_ds.GetDescription(), dem_gdal, varname,
+                                format='MEM', computeEdges=True, **kwargs)
+    out_ds = gdal2xarray(out_ds).to_dataset(name=varname)
+    out_ds.coords['y'] = dem.coords['y']
+    out_ds.coords['x'] = dem.coords['x']
+    return out_ds
 
 
 def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph:
