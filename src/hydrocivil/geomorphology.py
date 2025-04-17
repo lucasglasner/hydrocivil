@@ -60,6 +60,7 @@ def process_gdaldem(dem: xr.DataArray, varname: str, **kwargs: Any
     out_ds = gdal2xarray(out_ds).to_dataset(name=varname)
     out_ds.coords['y'] = dem.coords['y']
     out_ds.coords['x'] = dem.coords['x']
+    out_ds = out_ds.where(~dem.isnull())
     return out_ds
 
 
@@ -208,31 +209,33 @@ def basin_geographical_params(fid: Union[str, int, float],
     return params
 
 
-def terrain_exposure(aspect: xr.DataArray, fid: Union[str, int, float] = 0
-                     ) -> pd.DataFrame:
+def terrain_exposure(aspect: xr.DataArray,
+                     direction_ranges={'N_exposure': (337.5, 22.5),
+                                       'S_exposure': (157.5, 202.5),
+                                       'E_exposure': (67.5, 112.5),
+                                       'W_exposure': (247.5, 292.5),
+                                       'NE_exposure': (22.5, 67.5),
+                                       'SE_exposure': (112.5, 157.5),
+                                       'SW_exposure': (202.5, 247.5),
+                                       'NW_exposure': (292.5, 337.5)},
+                     **kwargs) -> pd.DataFrame:
     """
-    From an aspect raster compute the percentage of the raster that
-    belong to each of the 8 typical geographical directions.
-    (i.e N, S, E, W, NE, SE, SW, NW).
+    Compute terrain exposure from an aspect raster.
+
+    Calculates the percentage of the raster area that faces each of the 
+    eight cardinal and intercardinal directions (N, S, E, W, NE, SE, SW, NW),
+    based on aspect values.
 
     Args:
-        aspect (xarray.DataArray): Aspect raster
-        fid (_type_, optional): Feature ID. Defaults to 0.'
-
-    Returns:
-        pandas.DataFrame: Table with main directions exposure
+        aspect: An xarray.DataArray representing terrain aspect in degrees.
+                Values should range from 0 to 360, where 0/360 = North, 
+                90 = East, 180 = South, and 270 = West.
+        direction_ranges: A dictionary mapping direction labels to tuples
+                          defining angular ranges in degrees. Defaults to
+                          standard 8-direction bins.
+        **kwargs are passed to pandas.Series constructor
     """
     # Direction of exposure
-    direction_ranges = {
-        'N_exposure': (337.5, 22.5),
-        'S_exposure': (157.5, 202.5),
-        'E_exposure': (67.5, 112.5),
-        'W_exposure': (247.5, 292.5),
-        'NE_exposure': (22.5, 67.5),
-        'SE_exposure': (112.5, 157.5),
-        'SW_exposure': (202.5, 247.5),
-        'NW_exposure': (292.5, 337.5),
-    }
     # Calculate percentages for each direction
     tot_pixels = np.size(aspect.values) - \
         np.isnan(aspect.values).sum()
@@ -251,9 +254,8 @@ def terrain_exposure(aspect: xr.DataArray, fid: Union[str, int, float] = 0
 
         direction_pixels = np.sum(exposure)
         dir_perc[direction] = (direction_pixels/tot_pixels)
-    dir_perc = pd.DataFrame(dir_perc.values(),
-                            index=dir_perc.keys(),
-                            columns=[fid]).T
+    dir_perc = pd.Series(dir_perc.values(),
+                         index=dir_perc.keys(), **kwargs)
     return dir_perc
 
 
@@ -297,12 +299,11 @@ def basin_terrain_params(fid: Union[str, int, float], dem: xr.DataArray
 
     # Exposure/Aspect parameters
     if 'aspect' in dem.variables:
-        dir_perc = terrain_exposure(dem.aspect, fid=fid)
-        params = pd.concat([params, dir_perc], axis=1)
+        dir_perc = terrain_exposure(dem.aspect, name=fid)
+        params = pd.concat(((params.T, dir_perc)), axis=0).T
     else:
         warnings.warn('"aspect" variable doesnt exists in the dataset!')
     return params
-
 # -------------------- Concentration time for rural basins ------------------- #
 
 

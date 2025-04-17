@@ -161,6 +161,9 @@ def xarray2gdal(da: xr.DataArray, nodata: Union[str, int, float] = None
     outRaster.SetGeoTransform(transform.to_gdal())
     outRaster.SetProjection(meta)
     outRaster.GetRasterBand(1).WriteArray(data)
+    if nodata is not None:
+        outRaster.GetRasterBand(1).SetNoDataValue(nodata)
+
     return outRaster
 
 

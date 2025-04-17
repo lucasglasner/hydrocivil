@@ -9,13 +9,12 @@
 
 import os
 import warnings
-
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 import xarray as xr
-import copy as pycopy
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -25,7 +24,8 @@ from scipy.interpolate import interp1d
 
 from .misc import raster_distribution, polygonize
 from .unithydrographs import LumpedUnitHydrograph as SUH
-from .geomorphology import get_main_river, basin_outlet, process_gdaldem
+from .geomorphology import basin_outlet, process_gdaldem
+from .geomorphology import terrain_exposure, get_main_river
 from .geomorphology import basin_geographical_params, basin_terrain_params
 from .global_vars import GDAL_EXCEPTIONS, _has_whitebox
 from .abstractions import cn_correction
@@ -39,7 +39,139 @@ else:
 # ---------------------------------------------------------------------------- #
 
 
-class RiverBasin():
+class HydroDEM:
+    """
+    A class for processing and storing a Digital Elevation Model (DEM) for 
+    hydrological analysis.
+
+    This class is designed to handle and process a raster DEM, which may include 
+    missing values (NaNs). It creates a mask to identify valid data points and 
+    prepares attributes to store derived data such as the hypsometric curve,
+    exposure distribution and auxiliary rasters (aspect, slope, etc)
+    """
+
+    def __init__(self, dem: xr.DataArray, process_terrain: bool = True,
+                 **gdaldem_kwargs):
+        """
+        Initializes the HydroDEM class with a given Digital Elevation Model.
+
+        Args:
+            dem (xr.DataArray): A 2D xarray.DataArray representing the digital 
+                                elevation model (DEM).
+            process_terrain (bool): If True, preprocess the DEM to compute
+                slope, and aspect.
+            **gdaldem_kwargs: Additional common arguments for hillshade, slope
+            and aspect calculations. (osgeo.gdal.DEMProcessing for details)
+        """
+        self.dem = dem.squeeze().copy()                      # Store DEM
+        self.mask_raster = ~np.isnan(self.dem)               # No data mask
+        self.mask_raster.name = 'mask'
+        self.dem = self.dem.to_dataset(name='elevation')
+        self.hypsometric_curve = self.get_hypsometric_curve()
+        # Init terrain derived properties
+        if process_terrain:
+            self._process_terrain(**gdaldem_kwargs)
+            self.expdist = self.get_exposure_distribution()
+
+    def copy(self):
+        """
+        Create a deep copy of the class itself
+        """
+        return deepcopy(self)
+
+    def _process_terrain(self, **kwargs) -> xr.Dataset:
+        """
+        Processes the Digital Elevation Model (DEM) to compute the hypsometric
+        curve, slope, and aspect. Then computes DEM-derived properties for the
+        basin and saves them in the params dataframe.
+        Args:
+            RiverBasin: The updated class instance with computed
+                DEM properties.
+        """
+        slope = process_gdaldem(self.dem.elevation, 'slope',
+                                slopeFormat='percent', **kwargs)
+        aspect = process_gdaldem(self.dem.elevation, 'aspect',
+                                 zeroForFlat=True, **kwargs)
+        hs = process_gdaldem(self.dem.elecation, 'hillshade',
+                             multiDirectional=True, **kwargs)
+
+        self.dem = xr.merge([self.dem.elevation, slope / 100, aspect, hs])
+        self.dem.attrs = {'standard_name': 'terrain model'}
+
+    def _get_dem_resolution(self) -> float:
+        """
+        Compute digital elevation model resolution
+        Returns:
+            (float, float): raster resolution in the x-y directions
+        """
+        dx, dy = self.dem.rio.resolution()
+        return abs(dx), abs(dy)
+
+    def get_exposure_distribution(self, **kwargs) -> pd.Series:
+        """
+        Calculates the percentage of the raster area that faces each of the 
+        eight cardinal and intercardinal directions (N, S, E, W, NE, SE, SW, NW),
+        based on aspect values.
+
+        Args:
+            **kwargs additional arguments to terrain_exposure function.
+
+        Returns:
+            pd.Series: Exposure distribution.
+        """
+        return terrain_exposure(self.dem.aspect, **kwargs)
+
+    def get_hypsometric_curve(self, bins: Union[str, int, float] = 'auto',
+                              **kwargs: Any) -> pd.Series:
+        """
+        Compute the hypsometric curve of the digital elevation model. The
+        hypsometric curve represents the distribution of elevation within the
+        basin, expressed as the fraction of the total area that lies below a
+        given elevation. (Basically is the empirical cumulative distribution
+        function)
+
+        Args:
+            bins (str|int|float, optional): The method or number of
+                bins to use for the elevation distribution. Default is 'auto'.
+            **kwargs (Any): Additional keyword arguments to pass to the
+                raster_distribution function.
+
+        Returns:
+            pandas.Series: A pandas Series representing the hypsometric curve,
+                where the index corresponds to elevation bins and the values
+                represent the cumulative fraction of the area below each
+                elevation.
+        """
+        curve = raster_distribution(self.dem.elevation, bins=bins, **kwargs)
+        return curve.cumsum().drop_duplicates()
+
+    def area_below_height(self, height: Union[int, float], **kwargs: Any
+                          ) -> float:
+        """
+        With the hypsometric curve compute the fraction of area below
+        a certain height.
+
+        Args:
+            height (int|float): elevation value
+            **kwargs (Any): Additional keyword arguments to pass to the
+                raster_distribution function.
+
+        Returns:
+            (float): fraction of area below given elevation
+        """
+        if len(self.hypsometric_curve) == 0:
+            warnings.warn('Computing hypsometric curve ...')
+            self.get_hypsometric_curve(**kwargs)
+        curve = self.hypsometric_curve
+        if height < curve.index.min():
+            return 0
+        if height > curve.index.max():
+            return 1
+        interp_func = interp1d(curve.index.values, curve.values)
+        return interp_func(height).item()
+
+
+class RiverBasin(HydroDEM):
     """
     The RiverBasin class represents a hydrological basin and provides methods 
     to compute various geomorphological, hydrological, and terrain properties. 
@@ -105,11 +237,9 @@ class RiverBasin():
                  cn: xr.DataArray = None,
                  amc: str = 'II') -> None:
         """
-        This class represents a river basin with associated geographical and
-        hydrological data.  It initializes the basin with various attributes
-        such as basin identifier, watershed polygon, digital elevation model
-        (DEM), river network segments, curve number raster, and antecedent
-        moisture condition (AMC).
+        Initializes the basin with various attributes such as basin identifier,
+        watershed polygon, digital elevation model (DEM), river network
+        segments, curve number raster, and antecedent moisture condition (AMC).
 
         Args:
             basin (Union[gpd.GeoSeries, gpd.GeoDataFrame]): Watershed polygon
@@ -123,25 +253,17 @@ class RiverBasin():
                                            - 'normal' or 'II',
                                            - 'wet' or 'III'.
         """
-        # ID
+        # Init basin feature ID
         self.fid = fid
 
-        # Vectors
-        self.basin = basin.copy()
-        self.mask_vector = basin.copy()
-        if rivers is not None:
-            self.rivers = rivers.copy()
-            self.rivers_main = gpd.GeoDataFrame()
-        else:
-            self.rivers = rivers
-            self.rivers_main = gpd.GeoDataFrame()
+        # Init vector data
+        self.basin = basin.copy()                   # Basin polygon
+        self.mask_vector = basin.copy()             # Drainage area mask
+        self.rivers = deepcopy(rivers)              # Drainage network
+        self.rivers_main = gpd.GeoDataFrame()       # Main channel
 
-        # Rasters
-        self.dem = dem.rio.write_nodata(-9999).squeeze().copy()
-        self.dem = self.dem.to_dataset(name='elevation')
-        self.dem.encoding = dem.encoding
-        self.mask_raster = ~np.isnan(dem)
-        self.mask_raster.name = 'mask'
+        # Init HydroDEM constructor
+        HydroDEM.__init__(self, dem=dem, preprocess_terrain=True)
 
         if cn is not None:
             self.cn = cn.rio.write_nodata(-9999).squeeze().copy()
@@ -151,10 +273,7 @@ class RiverBasin():
         else:
             self.cn = cn
 
-        # Properties
         self.params = pd.DataFrame([], index=[self.fid], dtype=object)
-        self.hypsometric_curve = pd.Series(dtype=float)
-        self.exposure_distribution = pd.Series(dtype=float)
         self.UnitHydro = None
 
     def __repr__(self) -> str:
@@ -180,7 +299,7 @@ class RiverBasin():
         """
         Create a deep copy of the class itself
         """
-        return pycopy.deepcopy(self)
+        return deepcopy(self)
 
     def set_parameter(self, index: str, value: Any) -> Type['RiverBasin']:
         """
@@ -192,64 +311,6 @@ class RiverBasin():
         """
         self.params.loc[index, :] = value
         return self
-
-    def get_hypsometric_curve(self, bins: Union[str, int, float] = 'auto',
-                              **kwargs: Any) -> pd.Series:
-        """
-        Compute the hypsometric curve of the basin based on terrain elevation
-        data. The hypsometric curve represents the distribution of elevation
-        within the basin, expressed as the fraction of the total area that lies
-        below a given elevation.
-        Args:
-            bins (str|int|float, optional): The method or number of
-                bins to use for the elevation distribution. Default is 'auto'.
-            **kwargs (Any): Additional keyword arguments to pass to the
-                raster_distribution function.
-
-        Returns:
-            pandas.Series: A pandas Series representing the hypsometric curve,
-                where the index corresponds to elevation bins and the values
-                represent the cumulative fraction of the area below each
-                elevation.
-        """
-        curve = raster_distribution(self.dem.elevation, bins=bins, **kwargs)
-        self.hypsometric_curve = curve.cumsum().drop_duplicates()
-        return curve
-
-    def area_below_height(self, height: Union[int, float], **kwargs: Any
-                          ) -> float:
-        """
-        With the hypsometric curve compute the fraction of area below
-        a certain height.
-
-        Args:
-            height (int|float): elevation value
-            **kwargs (Any): Additional keyword arguments to pass to the
-                raster_distribution function.
-
-        Returns:
-            (float): fraction of area below given elevation
-        """
-        if len(self.hypsometric_curve) == 0:
-            warnings.warn('Computing hypsometric curve ...')
-            self.get_hypsometric_curve(**kwargs)
-        curve = self.hypsometric_curve
-        if height < curve.index.min():
-            return 0
-        if height > curve.index.max():
-            return 1
-        interp_func = interp1d(curve.index.values, curve.values)
-        return interp_func(height).item()
-
-    def _get_dem_resolution(self) -> float:
-        """
-        Compute DEM maximum resolution
-        Returns:
-            (float, float): raster resolution in the x-y directions
-        """
-        dx = abs(self.dem.elevation.x.diff('x')[0].item())
-        dy = abs(self.dem.elevation.y.diff('y')[0].item())
-        return (dx, dy)
 
     def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -301,42 +362,18 @@ class RiverBasin():
         self.params = pd.concat([self.params, geoparams], axis=1)
         return self
 
-    def _processdem(self, preprocess: bool = True) -> Type['RiverBasin']:
+    def _processdem(self) -> Type['RiverBasin']:
         """
-        Processes the Digital Elevation Model (DEM) to compute the hypsometric
-        curve, slope, and aspect. Then computes DEM-derived properties for the
-        basin and saves them in the params dataframe.
-        Args:
-            preprocess (bool): If True, preprocess the DEM to compute
-                hypsometric curve, slope, and aspect.
-            RiverBasin: The updated class instance with computed
-                DEM properties.
+        Computes DEM-derived properties for the basin and saves them in the
+        params dataframe.
         """
         try:
-            if preprocess:
-                dem = self.dem.elevation
-                curve = self.get_hypsometric_curve()
-                slope = process_gdaldem(dem, 'slope', slopeFormat='percent')
-                aspect = process_gdaldem(dem, 'aspect')
-
-                slope = slope.where(slope != -9999)
-                aspect = aspect.where(aspect != -9999)
-
-                self.dem = xr.merge([self.dem.elevation, slope/100, aspect])
-                self.dem.attrs = {
-                    'standard_name': 'terrain model',
-                    'hypsometry_x': [f'{i:.2f}' for i in curve.index],
-                    'hypsometry_y': [f'{j:3f}' for j in curve.values]
-                }
             # DEM derived params
             terrain_params = basin_terrain_params(self.fid, self.dem)
-            exp = terrain_params.T.index.map(lambda x: 'exposure' in x)
-            self.exposure_distribution = terrain_params.T[exp]
         except Exception as e:
             terrain_params = pd.DataFrame([], index=[self.fid])
             warnings.warn('PostProcess DEM Error:'+f'{e}')
         self.params = pd.concat([self.params, terrain_params], axis=1)
-        return self
 
     def _processrivers(self, preprocess_rivers: bool = False,
                        **kwargs,
@@ -509,7 +546,7 @@ class RiverBasin():
         # Geographical parameters
         self._processgeography(**geography_kwargs)
 
-        # Compute slope and aspect. Update dem property
+        # Update dem properties
         self._processdem(**dem_kwargs)
 
         # Flow derived params
@@ -769,7 +806,7 @@ class RiverBasin():
 
         # Plot basin exposition
         if len(self.params.index) > 1:
-            exp = self.exposure_distribution
+            exp = pd.DataFrame(self.expdist, columns=[self.fid])
             exp.index = exp.index.map(lambda x: x.split('_')[0])
             exp = exp.loc[['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']]
             exp = pd.concat([exp.iloc[:, 0], exp.iloc[:, 0][:'N']])
