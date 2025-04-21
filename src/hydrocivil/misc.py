@@ -127,7 +127,7 @@ def obj_to_xarray(obj: ArrayLike,
     elif isinstance(obj, xr.DataArray) or isinstance(obj, xr.Dataset):
         new_xarray = obj
     else:
-        text = f'Only ints, floats, lists, tuples, pandas, numpy or'
+        text = 'Only ints, floats, lists, tuples, pandas, numpy or'
         text = text + f'xarray objects can be used. Got {type(obj)} instead.'
         raise RuntimeError(text)
     return new_xarray

@@ -8,7 +8,6 @@
 '''
 
 from scipy.optimize import root_scalar
-import pandas as pd
 import numpy as np
 from numpy.typing import ArrayLike
 from typing import Union
@@ -155,7 +154,7 @@ def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
     """
     if theta_s > p:
         text = f'theta_s: {theta_s} > porosity: {p}. '
-        text += f'Soil cant have more moisture than the aviable void space!'
+        text += 'Soil cant have more moisture than the aviable void space!'
         raise ValueError(text)
 
     c1 = (p - theta_s)

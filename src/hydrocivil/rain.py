@@ -7,7 +7,6 @@
  Dependencies:
 '''
 
-import os
 import numpy as np
 import pandas as pd
 import warnings
@@ -430,7 +429,7 @@ class RainStorm(object):
             Updated class
         """
         if self.pr is None:
-            text = f"A storm must be computed before infiltration can "
+            text = "A storm must be computed before infiltration can "
             text += "be performed. Use the self.compute method."
             raise ValueError(text)
 

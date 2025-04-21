@@ -7,10 +7,8 @@
  Dependencies:
 '''
 
-import os
 import warnings
 import matplotlib.axes
-import matplotlib.figure
 import numpy as np
 import pandas as pd
 import scipy.signal as sg
@@ -102,14 +100,14 @@ def SUH_Clark(area: float, tc: float, tstep: float,
         _type_: _description_
     """
     text = "SUH_Clark() missing 1 required positional argument: 'R' or 'X'"
-    if type(R) == type(None):
-        if type(X) != type(None):
+    if R is None:
+        if X is not None:
             R = X * tc / (1 - X)
         else:
             raise TypeError(text)
 
     c = 2*tstep/(2*R+tstep)
-    if type(timearea) == type(None):
+    if timearea is None:
         t_shape = np.arange(0, 1+0.1, 0.1)
         At_shape = np.full(t_shape.shape, np.nan)
         At_shape[t_shape <= 1/2] = 1.414*(t_shape[t_shape <= 1/2])**1.5
@@ -295,7 +293,7 @@ def tstep_correction(tstep: float, tp: float) -> float:
     """
     tu = tp/5.5
     if tstep > tu*0.5:
-        warnings.warn(f'tstep exceeds tu/2, changing tstep to tu = tp/5.5')
+        warnings.warn('tstep exceeds tu/2, changing tstep to tu = tp/5.5')
         return tu, tp
     if (tstep < tu+0.1) and (tstep > tu-0.1):
         return tstep, tp
@@ -625,8 +623,8 @@ class LumpedUnitHydrograph(object):
                 centroid = centroid.reset_index(drop=True).to_crs('EPSG:4326')
                 mask = centroid.within(CHILE_UH_LINSLEYPOLYGONS.geometry)
                 if mask.sum() == 0:
-                    text = f'Basin is outside the geographical limits'
-                    text += f' allowed by the Chilean Linsley method.'
+                    text = 'Basin is outside the geographical limits'
+                    text += ' allowed by the Chilean Linsley method.'
                     raise RuntimeError(text)
                 else:
                     DGAChileZone = CHILE_UH_LINSLEYPOLYGONS[mask]
@@ -661,8 +659,8 @@ class LumpedUnitHydrograph(object):
             centroid = centroid.reset_index(drop=True).to_crs('EPSG:4326')
             mask = centroid.within(CHILE_UH_GRAYPOLYGONS.geometry)
             if mask.sum() == 0:
-                text = f'Basin is outside the geographical limits'
-                text += f' allowed by the Chilean Gray method.'
+                text = 'Basin is outside the geographical limits'
+                text += ' allowed by the Chilean Gray method.'
                 raise RuntimeError(text)
 
             a, b = CHILE_UH_GRAYPARAMS['a'], CHILE_UH_GRAYPARAMS['b']

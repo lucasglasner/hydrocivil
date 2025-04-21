@@ -10,9 +10,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-import copy as pycopy
 
-import matplotlib.pyplot as plt
 from typing import Tuple, Union
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon

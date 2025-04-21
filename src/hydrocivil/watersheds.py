@@ -92,7 +92,7 @@ class HydroDEM:
                                 slopeFormat='percent', **kwargs)
         aspect = process_gdaldem(self.dem.elevation, 'aspect',
                                  zeroForFlat=True, **kwargs)
-        hs = process_gdaldem(self.dem.elecation, 'hillshade',
+        hs = process_gdaldem(self.dem.elevation, 'hillshade',
                              multiDirectional=True, **kwargs)
 
         self.dem = xr.merge([self.dem.elevation, slope / 100, aspect, hs])
@@ -263,7 +263,7 @@ class RiverBasin(HydroDEM):
         self.rivers_main = gpd.GeoDataFrame()       # Main channel
 
         # Init HydroDEM constructor
-        HydroDEM.__init__(self, dem=dem, preprocess_terrain=True)
+        HydroDEM.__init__(self, dem=dem, process_terrain=True)
 
         if cn is not None:
             self.cn = cn.rio.write_nodata(-9999).squeeze().copy()
@@ -282,7 +282,7 @@ class RiverBasin(HydroDEM):
         Returns:
             str: Some metadata
         """
-        if type(self.UnitHydro) != type(None):
+        if self.UnitHydro is not None:
             uh_text = self.UnitHydro.method
         else:
             uh_text = None

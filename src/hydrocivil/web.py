@@ -7,7 +7,6 @@
  Dependencies:
 '''
 
-import os
 import requests
 
 

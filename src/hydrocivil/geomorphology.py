@@ -181,7 +181,7 @@ def basin_geographical_params(fid: Union[str, int, float],
     Returns:
         pandas.DataFrame: table with parameters
     """
-    if type(outlet) != type(None):
+    if outlet is not None:
         outlet_x, outlet_y = (outlet[0], outlet[1])
         basin['outlet_x'] = outlet_x
         basin['outlet_y'] = outlet_y
