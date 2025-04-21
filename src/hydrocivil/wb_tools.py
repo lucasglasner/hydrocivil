@@ -382,9 +382,7 @@ def wbDEMflow(dem_no_deps: Union[wbw.Raster, xr.DataArray],
 
 def wbDEMfill(dem: Union[wbw.Raster, xr.DataArray],
               input_is_xarray: bool = False,
-              smooth: bool = False,
               carve_dist: float = 0,
-              smooth_kws: dict = {},
               fill_kws: dict = {},
               breach_kws: dict = {}):
     """
@@ -393,12 +391,8 @@ def wbDEMfill(dem: Union[wbw.Raster, xr.DataArray],
         dem (wbw.Raster, xr.DataArray): Input digital elevation model.
         input_is_xarray (bool, optional): Whether to transform the input
             xarray object to a whitebox_workflows Raster. Defaults to False.
-        smooth (bool, optional): Whether to smooth the input DEM with a 
-            feature preserving filter. Defaults to False
         carve_dist (float, optional): Maximum distance to carve when breaching.
             Defaults to 0.
-        smooth_kws (dict, optional): Additional arguments for the smoothing
-            filter.
         fill_kws (dict, optional): Additional arguments for the fill
             depressions method.
         breach_kws (dict, optional): Additional arguments for the breach
@@ -411,34 +405,24 @@ def wbDEMfill(dem: Union[wbw.Raster, xr.DataArray],
     if input_is_xarray:
         dem = xarray2wbRaster(dem)
 
-    # Smooth DEM
-    if smooth:
-        dem_s = wbe.feature_preserving_smoothing(dem, **smooth_kws)
-    else:
-        dem_s = dem
-
-    # Compute hillshade
-    hs = wbe.multidirectional_hillshade(dem_s)
-
     # Compute sinks
-    sinks = wbe.sink(dem_s)
+    sinks = wbe.sink(dem)
 
     # Create the depressionless DEM
     if carve_dist != 0:
-        dem_no_deps = wbe.breach_depressions_least_cost(dem_s,
+        dem_no_deps = wbe.breach_depressions_least_cost(dem,
                                                         max_dist=carve_dist,
                                                         **breach_kws)
         dem_no_deps = wbe.fill_depressions(dem_no_deps, **fill_kws)
     else:
-        dem_no_deps = wbe.fill_depressions(dem_s, **fill_kws)
+        dem_no_deps = wbe.fill_depressions(dem, **fill_kws)
 
     if input_is_xarray:
-        dem_s = wbRaster2xarray(dem_s).to_dataset(name='elevation_smooth')
-        hs = wbRaster2xarray(hs).to_dataset(name='hillshade')
+        dem = wbRaster2xarray(dem).to_dataset(name='elevation_smooth')
         sinks = wbRaster2xarray(sinks).to_dataset(name='sinks')
         dem_no_deps = wbRaster2xarray(dem_no_deps).to_dataset(
             name='elevation_nodeps')
-    return (dem_s, hs, sinks, dem_no_deps)
+    return (sinks, dem_no_deps)
 
 
 def wbDEMstreams(dem: wbw.Raster,
@@ -467,12 +451,10 @@ def wbDEMstreams(dem: wbw.Raster,
 def wbDEMpreprocess(dem: xr.DataArray,
                     raster2xarray: bool = False,
                     vector2geopandas: bool = False,
-                    smooth: bool = False,
                     carve_dist: float = 0,
                     flow_method: str = 'd8',
                     return_streams: bool = False,
                     facc_threshold: float = 1e5,
-                    smooth_kws: dict = {},
                     fill_kws: dict = {},
                     breach_kws: dict = {}) -> Tuple[xr.Dataset, gpd.GeoDataFrame]:
     """
@@ -486,8 +468,6 @@ def wbDEMpreprocess(dem: xr.DataArray,
             to xarray objects. Defaults to False.
         vector2geopandas (bool, optional): Whether to transform output vectors
             to geopandas objects. Defaults to False.
-        smooth (bool, optional): Whether to smooth the input DEM with a 
-            feature preserving filter.
         carve_dist (float, optional): Maximum distance to carve when breaching.
             Defaults to 0.
         flow_method (str, optional): Flow direction algorithm used for
@@ -497,8 +477,6 @@ def wbDEMpreprocess(dem: xr.DataArray,
             networks. Defaults to False.
         facc_threshold (float, optional): Threshold for flow
             accumulation to define streams. Defaults to 1e5.
-        smooth_kws (dict, optional): Additional arguments for the smoothing
-            filter.
         fill_kws (dict, optional): Additional arguments for the fill
             depressions method.
         breach_kws (dict, optional): Additional arguments for the breach
@@ -522,19 +500,15 @@ def wbDEMpreprocess(dem: xr.DataArray,
     dem = xarray2wbRaster(dem)
 
     # DEM preprocess sinks
-    dem_s, hs, sinks, dem_no_deps = wbDEMfill(dem, smooth=smooth,
-                                              carve_dist=carve_dist,
-                                              smooth_kws=smooth_kws,
-                                              fill_kws=fill_kws,
-                                              breach_kws=breach_kws)
+    sinks, dem_no_deps = wbDEMfill(dem, carve_dist=carve_dist,
+                                   fill_kws=fill_kws, breach_kws=breach_kws)
 
     # Compute flow direction, accumulation and flow path length
     flowdir, flowacc = wbDEMflow(dem_no_deps, method=flow_method)
 
     # Join rasters
-    names = ['elevation_smooth', 'hillshade', 'sinks',
-             'flowdir', 'flowacc']
-    rasters = [dem_s, hs, sinks, flowdir, flowacc]
+    names = ['elevation_nodeps', 'sinks', 'flowdir', 'flowacc']
+    rasters = [dem_no_deps, sinks, flowdir, flowacc]
 
     # Compute vector streams if asked and return final results
     if return_streams:

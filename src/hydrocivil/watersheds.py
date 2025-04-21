@@ -47,7 +47,7 @@ class HydroDEM:
     This class is designed to handle and process a raster DEM, which may include 
     missing values (NaNs). It creates a mask to identify valid data points and 
     prepares attributes to store derived data such as the hypsometric curve,
-    exposure distribution and auxiliary rasters (aspect, slope, etc)
+    exposure distribution and auxiliary rasters (aspect, slope, etc).
     """
 
     def __init__(self, dem: xr.DataArray, process_terrain: bool = True,
@@ -64,6 +64,7 @@ class HydroDEM:
             and aspect calculations. (osgeo.gdal.DEMProcessing for details)
         """
         self.dem = dem.squeeze().copy()                      # Store DEM
+        self.dem = self.dem.rio.write_nodata(np.nan)         # encode no data
         self.mask_raster = ~np.isnan(self.dem)               # No data mask
         self.mask_raster.name = 'mask'
         self.dem = self.dem.to_dataset(name='elevation')
@@ -79,14 +80,14 @@ class HydroDEM:
         """
         return deepcopy(self)
 
-    def _process_terrain(self, **kwargs) -> xr.Dataset:
+    def _process_terrain(self, **kwargs):
         """
-        Processes the Digital Elevation Model (DEM) to compute the hypsometric
-        curve, slope, and aspect. Then computes DEM-derived properties for the
-        basin and saves them in the params dataframe.
+        Processes the Digital Elevation Model (DEM) for slope, aspect and 
+        multidirectional hillshade. Save everything in the dem dataset. 
+
         Args:
-            RiverBasin: The updated class instance with computed
-                DEM properties.
+            **kwargs are common arguments for gdaldem slope, aspect and
+            hillshade computation. 
         """
         slope = process_gdaldem(self.dem.elevation, 'slope',
                                 slopeFormat='percent', **kwargs)
@@ -97,6 +98,18 @@ class HydroDEM:
 
         self.dem = xr.merge([self.dem.elevation, slope / 100, aspect, hs])
         self.dem.attrs = {'standard_name': 'terrain model'}
+
+    def _process_flow(self, **kwargs):
+        if _has_whitebox:
+            from .wb_tools import wbDEMpreprocess
+            rasters, _ = wbDEMpreprocess(self.dem.elevation,
+                                         return_streams=False,
+                                         raster2xarray=True,
+                                         **kwargs)
+            self.dem = xr.merge([self.dem]+rasters)
+        else:
+            text = "Flow processing requieres 'whitebox_workflows' package"
+            raise ImportError(text)
 
     def _get_dem_resolution(self) -> float:
         """
@@ -109,12 +122,16 @@ class HydroDEM:
 
     def get_exposure_distribution(self, **kwargs) -> pd.Series:
         """
-        Calculates the percentage of the raster area that faces each of the 
-        eight cardinal and intercardinal directions (N, S, E, W, NE, SE, SW, NW),
-        based on aspect values.
+        Based on aspect values calculates the percentage of the raster area that
+        faces each of the eight cardinal and intercardinal directions (N, S, E,
+        W, NE, SE, SW, NW).
 
         Args:
-            **kwargs additional arguments to terrain_exposure function.
+            **kwargs:
+                direction_ranges: A dictionary mapping direction labels to tuples
+                            defining angular ranges in degrees. Defaults to
+                            standard 8-direction bins.
+                Additional arguments for pandas.Series constructor
 
         Returns:
             pd.Series: Exposure distribution.
@@ -398,25 +415,23 @@ class RiverBasin(HydroDEM):
                                               **kwargs)
             self.dem = xr.merge([self.dem]+rasters)
             self.rivers = rivers
-        try:
-            # Main river
-            mainriver = get_main_river(self.rivers)
-            self.rivers_main = mainriver
 
-            # Main river stats
-            mriverlen = self.rivers_main.length.sum()/1e3
-            if mriverlen.item() != 0:
-                mriverlen = mriverlen.item()
-                dx, dy = self._get_dem_resolution()
-                geom = mainriver.buffer(max((dx, dy))).geometry
-                mriverslope = self.dem.slope.rio.clip(geom).mean().item()
-            else:
-                mriverlen = np.nan
-                mriverslope = np.nan
-            self.params['mriverlen'] = mriverlen
-            self.params['mriverslope'] = mriverslope
-        except Exception as e:
-            warnings.warn('Flow derived properties Error: ' + f'{e}')
+        # Main river
+        mainriver = get_main_river(self.rivers)
+        self.rivers_main = mainriver
+
+        # Main river stats
+        mriverlen = self.rivers_main.length.sum()/1e3
+        if mriverlen.item() != 0:
+            mriverlen = mriverlen.item()
+            dx, dy = self._get_dem_resolution()
+            geom = mainriver.buffer(max((dx, dy))).geometry
+            mriverslope = self.dem.slope.rio.clip(geom).mean().item()
+        else:
+            mriverlen = np.nan
+            mriverslope = np.nan
+        self.params['mriverlen'] = mriverlen
+        self.params['mriverslope'] = mriverslope
         return self
 
     def _processrastercounts(self, raster: xr.DataArray, output_type: int = 1
@@ -618,34 +633,36 @@ class RiverBasin(HydroDEM):
         return nwshed
 
     def update_snowlimit(self, snowlimit: Union[int, float],
+                         clean_perc: float = 0.1,
                          polygonize_kwargs: dict = {},
                          **kwargs: Any) -> Type['RiverBasin']:
         """
         Updates the RiverBasin object to represent only the pluvial (rain-fed) 
-        portion of the watershed below a given snowlimit elevation.
+        portion of the watershed below a specified snow limit elevation.
 
-        This method clips the basin to areas below the specified snowlimit 
-        elevation threshold. The resulting watershed represents only the
-        portion of the basin that receives precipitation as rainfall rather
-        than snow. All watershed properties (area, rivers, DEM, etc.) are
-        updated accordingly.
+        This method clips the basin to areas below the given snow limit 
+        elevation threshold. The resulting watershed represents only the 
+        portion of the basin that receives precipitation as rainfall rather 
+        than snow. All watershed properties (e.g., area, rivers, DEM, etc.) 
+        are updated accordingly.
 
         Args:
-            snowlimit (int|float): Elevation threshold in same units as DEM that 
-                defines the rain/snow transition zone
-                object with the new clipped one. Defaults to False which leads
-                to update only the parameter table and basin masks.
+            snowlimit (int|float): Elevation threshold (in the same units as 
+            the DEM) that defines the rain/snow transition zone.
+            clean_perc (float): Minimum polygon area (as a percentage of the 
+                total basin area) to be included in the pluvial zone. Defaults
+                to 0.1%. 
             polygonize_kwargs (dict, optional): Additional keyword arguments 
-                passed to the polygonize function. Defaults to {}.
-            **kwargs: Additional keyword arguments passed to the compute_params
-                method
+            passed to the polygonize function. Defaults to {}.
+            **kwargs: Additional keyword arguments passed to the compute_params 
+            method.
 
         Raises:
-            TypeError: If snowlimit argument is not numeric
+            TypeError: If the snowlimit argument is not numeric.
 
         Returns:
-            RiverBasin: A new RiverBasin object containing only the pluvial
-                portion of the original watershed below the snowlimit
+            RiverBasin: The updated RiverBasin object containing only the 
+            pluvial portion of the original watershed below the snow limit.
         """
         if not isinstance(snowlimit, (int, float)):
             raise TypeError("snowlimit must be numeric")
@@ -667,10 +684,15 @@ class RiverBasin(HydroDEM):
             self.mask_raster = ~self.dem.elevation.isnull()
             return self
         else:
-            if self.params.loc['area'].item() == 0:
-                self.compute_params()
-            nshp = polygonize(self.dem.elevation <= snowlimit,
-                              **polygonize_kwargs)
+            # Create pluvial area mask
+            mask = self.dem.elevation <= snowlimit
+            nshp = polygonize(mask, **polygonize_kwargs)
+
+            # Filter out polygons with less than X% of the basin total area
+            valid_areas = nshp.area * 100 / self.basin.area.item() > clean_perc
+            nshp = nshp[valid_areas]
+
+            # Clip and save
             nwshed = self.clip(nshp, **kwargs)
             self.params = nwshed.params
             self.mask_raster = nwshed.mask_raster

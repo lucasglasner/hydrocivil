@@ -78,8 +78,11 @@ def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph
     Returns:
         (nx.DiGraph): River network represented as a directed acyclic graph.
     """
-    # Explode geodataframe into all possible segments and compute segment length
+    # Explode geodataframe into all possible segments
     gdf_segments = gdf_segments.explode(index_parts=False)
+
+    # Remove empty geometries and compute length
+    gdf_segments = gdf_segments[~gdf_segments['geometry'].is_empty]
     gdf_segments = gdf_segments.reset_index(drop=True)
     gdf_segments['length'] = gdf_segments.geometry.length
 

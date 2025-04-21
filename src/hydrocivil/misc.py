@@ -133,14 +133,12 @@ def obj_to_xarray(obj: ArrayLike,
     return new_xarray
 
 
-def xarray2gdal(da: xr.DataArray, nodata: Union[str, int, float] = None
-                ) -> gdal.Dataset:
+def xarray2gdal(da: xr.DataArray) -> gdal.Dataset:
     """
     Convert an xarray dataset to a GDAL in-memory dataset.
 
     Args:
         da (xarray.DataArray): Input data array.
-        nodata (_type_, optional): Input dtype. Defaults to None.
 
     Returns:
         (osgeo.gdal.Dataset): GDAL in-memory dataset
@@ -149,8 +147,6 @@ def xarray2gdal(da: xr.DataArray, nodata: Union[str, int, float] = None
     data = da.values
     meta = da.rio.crs.to_wkt()
     transform = da.rio.transform()
-    if nodata is None:
-        nodata = da.rio.nodata
     dtype = gdal_array.NumericTypeCodeToGDALTypeCode(data.dtype)
 
     # Write the data to a GDAL in-memory dataset
@@ -161,8 +157,6 @@ def xarray2gdal(da: xr.DataArray, nodata: Union[str, int, float] = None
     outRaster.SetGeoTransform(transform.to_gdal())
     outRaster.SetProjection(meta)
     outRaster.GetRasterBand(1).WriteArray(data)
-    if nodata is not None:
-        outRaster.GetRasterBand(1).SetNoDataValue(nodata)
 
     return outRaster
 
