@@ -324,16 +324,15 @@ def SCS_EffectiveRainfall(pr: Union[int, float],
         >>> SCS_EffectiveRainfall([10,20,30], 75)
         array([0., 2.45, 8.67])
     """
-    if pr < 0:
-        raise ValueError("Precipitation must be positive")
-    if not 0 <= cn <= 100:
-        raise ValueError("CN must be between 0 and 100")
-    if r <= 0:
-        raise ValueError("Initial abstraction ratio must be positive")
-
     if np.isnan(pr) or np.isnan(cn):
         return np.nan
     else:
+        if pr < 0.:
+            raise ValueError("Precipitation must be positive")
+        if not 0. <= cn <= 100.:
+            raise ValueError("CN must be between 0 and 100")
+        if r <= 0.:
+            raise ValueError("Initial abstraction ratio must be positive")
         S = SCS_MaximumRetention(cn, **kwargs)
         Ia = r * S
         if pr <= Ia:

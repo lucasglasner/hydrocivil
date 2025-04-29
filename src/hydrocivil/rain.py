@@ -324,7 +324,7 @@ class RainStorm(object):
 
         Args:
             cn (array_like or float): Curve Number
-            **kwargs are passed to SCS_Abstractions function
+            **kwargs are passed to xr.apply_ufunc
 
         Returns:
             (array_like): Infiltration rate [mm/h]
@@ -332,10 +332,11 @@ class RainStorm(object):
         # Compute losses
         pr_cum = self.pr.cumsum('time')*self.timestep  # Accumulate over time
         infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn,
-                                  kwargs=kwargs,
+
                                   input_core_dims=[['time'], []],
                                   output_core_dims=[['time']],
-                                  vectorize=True)
+                                  vectorize=True,
+                                  **kwargs)
         # Compute infiltration rate
         infr = infr_cum.transpose(*self.pr.dims).diff('time')
         infr = infr.reindex({'time': self.time})/self.timestep
@@ -352,6 +353,7 @@ class RainStorm(object):
             f0 (float): Dry or initial soil hydraulic conductivity (mm/h)
             fc (float): Saturated soil hydraulic conductivity (mm/h)
             k (float): Horton's method decay coefficient (1/h)
+            **kwargs are passed to xr.apply_ufunc
 
         Returns:
             (array_like): Infiltration rate [mm/h]
@@ -359,11 +361,10 @@ class RainStorm(object):
         # Compute losses
         infr = xr.apply_ufunc(Horton_Abstractions, self.pr, self.time,
                               f0, fc, k,
-                              kwargs=kwargs,
                               input_core_dims=[['time'], ['time'],
                                                [], [], []],
                               output_core_dims=[['time']],
-                              vectorize=True)
+                              vectorize=True, **kwargs)
         infr = infr.transpose(*self.pr.dims)
         return infr
 
@@ -376,17 +377,17 @@ class RainStorm(object):
             duration (float): Time duration of rainfall event (h)
             S (float): Adsorption coefficient (mm / h ^ 0.5)
             K (float): Saturated soil hydraulic conductivity (mm/h)
+            **kwargs are passed to xr.apply_ufunc
 
         Returns:
             (array_like): Infiltration rate [mm/h]
         """
         # Compute losses
         infr = xr.apply_ufunc(Philip_Abstractions, self.pr, self.time, S, K,
-                              kwargs=kwargs,
                               input_core_dims=[['time'], ['time'],
                                                [], []],
                               output_core_dims=[['time']],
-                              vectorize=True)
+                              vectorize=True, **kwargs)
         infr = infr.transpose(*self.pr.dims)
         return infr
 
@@ -402,6 +403,7 @@ class RainStorm(object):
             psi (float): Soil suction (mm). Highly dependant of soil moisture.
             h0 (float): water depth above the soil column (mm).
             Default to 10 mm. 
+            **kwargs are passed to xr.apply_ufunc
 
         Returns:
             (array_like): Infiltration rate [mm/h]
@@ -409,11 +411,10 @@ class RainStorm(object):
         # Compute losses
         infr = xr.apply_ufunc(GreenAmpt_Abstractions, self.pr, self.time,
                               K, p, theta_s, psi, h0,
-                              kwargs=kwargs,
                               input_core_dims=[['time'], ['time'],
                                                [], [], [], [], []],
                               output_core_dims=[['time']],
-                              vectorize=True)
+                              vectorize=True, **kwargs)
         infr = infr.transpose(*self.pr.dims)
         return infr
 

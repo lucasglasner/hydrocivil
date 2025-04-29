@@ -201,7 +201,7 @@ def gdal2xarray(gdal_ds: gdal.Dataset) -> xr.DataArray:
     # Get data and metadata
     data = gdal_ds.GetRasterBand(1).ReadAsArray()
     transform = rxr.raster_dataset.Affine(*gdal_ds.GetGeoTransform())
-    crs = rxr.crs.CRS(gdal_ds.GetProjection())
+    crs = gdal_ds.GetProjection()
     nodata = gdal_ds.GetRasterBand(1).GetNoDataValue()
 
     # Get raster coordinates
@@ -391,7 +391,7 @@ def is_iterable(obj: Any) -> bool:
     try:
         iter(obj)
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -408,5 +408,5 @@ def to_numeric(obj: Any) -> Any:
     """
     try:
         return pd.to_numeric(obj)
-    except:
+    except Exception:
         return obj

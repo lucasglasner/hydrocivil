@@ -494,7 +494,7 @@ def wbDEMpreprocess(dem: xr.DataArray,
         """
         try:
             return obj.get_value_as_f64()
-        except:
+        except Exception:
             return obj
     dem_x = dem.copy()
     dem = xarray2wbRaster(dem)
