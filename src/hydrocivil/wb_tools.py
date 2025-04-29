@@ -6,6 +6,9 @@
  Description: Main watershed classes
  Dependencies:
 '''
+import os
+import tempfile
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -14,9 +17,8 @@ import xarray as xr
 from typing import Tuple, Union
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon
-import warnings
 import whitebox_workflows as wbw
-wbe = wbw.WbEnvironment()
+wbe = wbw.WbEnvironment(user_id='hydrocivil')
 
 
 def wbRaster2numpy(obj: wbw.Raster) -> np.ndarray:
@@ -32,7 +34,6 @@ def wbRaster2numpy(obj: wbw.Raster) -> np.ndarray:
     """
     rows = int(np.ceil(obj.configs.rows))
     columns = int(np.ceil(obj.configs.columns))
-    nodata = obj.configs.nodata
 
     # Initialize with nodata
     arr = np.full([rows, columns], np.nan)
@@ -72,6 +73,9 @@ def wbRaster2xarray(obj: wbw.Raster, exchange_rowcol: bool = False,
     if flip_x:
         x = x[::-1]
 
+    x = x+obj.configs.resolution_x/2
+    y = y-obj.configs.resolution_y/2
+
     da = xr.DataArray(data=wbRaster2numpy(obj),
                       dims=['y', 'x'],
                       coords={'x': ('x', x, {'units': obj.configs.xy_units}),
@@ -80,6 +84,7 @@ def wbRaster2xarray(obj: wbw.Raster, exchange_rowcol: bool = False,
                              '_FillValue': obj.configs.nodata,
                              'wkt_code': obj.configs.coordinate_ref_system_wkt,
                              'epsg_code': obj.configs.epsg_code})
+    da = da.where(da != obj.configs.nodata)
 
     return da
 
@@ -259,54 +264,54 @@ def wbVector2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
         return wbPolygon2geopandas(obj, crs=crs)
 
 
-def xarray2wbRasterConfigs(da: xr.DataArray) -> wbw.RasterConfigs:
-    """
-    Generate basic RasterConfigs from an xarray DataArray.
+# def xarray2wbRasterConfigs(da: xr.DataArray) -> wbw.RasterConfigs:
+#     """
+#     Generate basic RasterConfigs from an xarray DataArray.
 
-    Args:
-        da (xr.DataArray): Input xarray DataArray containing raster data.
+#     Args:
+#         da (xr.DataArray): Input xarray DataArray containing raster data.
 
-    Returns:
-        wbw.RasterConfigs: Configuration object for creating a new raster.
-    """
-    configs = wbw.RasterConfigs()
-    dtype_dict = {'float32': wbw.RasterDataType.F32,
-                  'float64': wbw.RasterDataType.F64,
-                  'int8': wbw.RasterDataType.I8,
-                  'int16': wbw.RasterDataType.I16,
-                  'int32': wbw.RasterDataType.I32,
-                  'int64': wbw.RasterDataType.I64,
-                  '<U8': wbw.RasterDataType.U8,
-                  '<U16': wbw.RasterDataType.U16,
-                  '<U32': wbw.RasterDataType.U32,
-                  '<U64': wbw.RasterDataType.U64}
-    # Raster shape
-    nrows, ncols = da.shape[0], da.shape[1]
-    configs.rows = nrows
-    configs.columns = ncols
-    bounds = da.rio.bounds()
-    configs.west = bounds[0]
-    configs.east = bounds[2]
-    configs.south = bounds[1]
-    configs.north = bounds[3]
+#     Returns:
+#         wbw.RasterConfigs: Configuration object for creating a new raster.
+#     """
+#     configs = wbw.RasterConfigs()
+#     dtype_dict = {'float32': wbw.RasterDataType.F32,
+#                   'float64': wbw.RasterDataType.F64,
+#                   'int8': wbw.RasterDataType.I8,
+#                   'int16': wbw.RasterDataType.I16,
+#                   'int32': wbw.RasterDataType.I32,
+#                   'int64': wbw.RasterDataType.I64,
+#                   '<U8': wbw.RasterDataType.U8,
+#                   '<U16': wbw.RasterDataType.U16,
+#                   '<U32': wbw.RasterDataType.U32,
+#                   '<U64': wbw.RasterDataType.U64}
+#     # Raster shape
+#     nrows, ncols = da.shape[0], da.shape[1]
+#     configs.rows = nrows
+#     configs.columns = ncols
+#     bounds = da.rio.bounds()
+#     configs.west = bounds[0]
+#     configs.east = bounds[2]
+#     configs.south = bounds[1]
+#     configs.north = bounds[3]
 
-    # Raster resolution
-    dx, dy = da.rio.resolution()
-    configs.resolution_x = abs(dx)
-    configs.resolution_y = abs(dy)
+#     # Raster resolution
+#     dx, dy = da.rio.resolution()
+#     configs.resolution_x = abs(dx)
+#     configs.resolution_y = abs(dy)
 
-    # Projection
-    try:
-        configs.epsg_code = da.rio.crs.to_epsg()
-        configs.coordinate_ref_system_wkt = da.rio.crs.to_wkt()
-    except Exception as e:
-        warnings.warn(str(e))
+#     # Projection
+#     try:
+#         configs.epsg_code = da.rio.crs.to_epsg()
+#         configs.coordinate_ref_system_wkt = da.rio.crs.to_wkt()
+#     except Exception as e:
+#         warnings.warn(str(e))
 
-    # No data and dtype
-    configs.nodata = da.rio.nodata
-    configs.data_type = dtype_dict[str(da.dtype)]
+#     # No data and dtype
+#     configs.nodata = np.nan
+#     configs.data_type = dtype_dict[str(da.dtype)]
 
-    return configs
+#     return configs
 
 
 def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
@@ -319,13 +324,11 @@ def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
     Returns:
         wbw.Raster: A new raster created from the DataArray.
     """
-    array = da.values
-    configs = xarray2wbRasterConfigs(da)
-    new_raster = wbe.new_raster(configs)
-    for row in range(configs.rows):
-        for col in range(configs.columns):
-            new_raster[row, col] = array[row, col]
-    return new_raster
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        fpath = os.path.join(tmpdirname, f'{os.path.basename(tmpdirname)}.tif')
+        da.rio.to_raster(fpath)
+        wda = wbe.read_raster(fpath).deep_copy()
+    return wda
 
 
 def wbDEMflow(dem_no_deps: Union[wbw.Raster, xr.DataArray],
@@ -507,7 +510,7 @@ def wbDEMpreprocess(dem: xr.DataArray,
     flowdir, flowacc = wbDEMflow(dem_no_deps, method=flow_method)
 
     # Join rasters
-    names = ['elevation_nodeps', 'sinks', 'flowdir', 'flowacc']
+    names = ['elevation_nodeps', 'sinks', 'fdir', 'facc']
     rasters = [dem_no_deps, sinks, flowdir, flowacc]
 
     # Compute vector streams if asked and return final results

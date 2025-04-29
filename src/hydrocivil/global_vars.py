@@ -13,7 +13,7 @@ import geopandas as gpd
 
 try:
     import whitebox_workflows as wbw
-except:
+except Exception:
     _has_whitebox = False
 else:
     _has_whitebox = True

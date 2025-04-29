@@ -7,7 +7,7 @@
  Dependencies:
 """
 
-import os
+
 import warnings
 from copy import deepcopy
 
@@ -19,7 +19,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from typing import Union, Any, Type, Tuple
-from osgeo import gdal, gdal_array
+from osgeo import gdal
 from scipy.interpolate import interp1d
 
 from .misc import raster_distribution, polygonize

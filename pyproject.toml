@@ -8,15 +8,30 @@ version = "1.0.4"
 authors = [
   { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
 ]
-dependencies = ["numpy", "matplotlib", "scipy", "pandas", "xarray",
-                "shapely", "geopandas", "rioxarray", "networkx"]
 description = "a package for hydrological methods in civil and enviromental engineering"
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scipy",
+    "pandas",
+    "pyproj",
+    "ipykernel",
+    "xarray",
+    "shapely",
+    "geopandas",
+    "rasterio",
+    "rioxarray",
+    "networkx",
+    "ipykernel>=6.29.5",
+]
+
 readme = "README.md"
 requires-python = ">=3.10"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+license = "MIT"
+
+[project.optional-dependencies]
+dev = [
+    "whitebox_workflows",
 ]
 
 [project.urls]
