@@ -99,12 +99,39 @@ class HydroDEM:
         self.dem = xr.merge([self.dem.elevation, slope / 100, aspect, hs])
         self.dem.attrs = {'standard_name': 'terrain model'}
 
-    def _process_flow(self, **kwargs):
+    def _process_flow(self,
+                      carve_dist: float = 0,
+                      flow_method: str = 'd8',
+                      **kwargs):
+        """
+        Processes the flow data using the WhiteboxTools package if available.
+        This method preprocesses the digital elevation model (DEM) to generate
+        hydrological flow-related rasters. If the required package is not installed,
+        an ImportError is raised.
+        Args:
+            carve_dist (float, optional): Maximum distance to carve when
+                breaching. Defaults to 0.
+            flow_method (str, optional): Flow direction algorithm used for
+                computing flow direction and flow accumulation rasters. 
+                Defaults to 'd8'. Options include: 'd8', 'rho8', 'dinf', 'fd8',
+                'Mdinf', 'Quinn1995', 'Qin2007'.
+            **kwargs: Additional keyword arguments to be passed to the 
+                      `wbDEMpreprocess` function.
+            ImportError: If the 'whitebox_workflows' package is not installed.
+        Notes:
+            - The `wbDEMpreprocess` function is used to preprocess the DEM and 
+              generate flow-related rasters.
+            - The resulting rasters are merged with the existing DEM data.
+            - If the 'whitebox_workflows' package is not available, the method 
+              will raise an ImportError with an appropriate message.
+        """
         if _has_whitebox:
             from .wb_tools import wbDEMpreprocess
             rasters, _ = wbDEMpreprocess(self.dem.elevation,
                                          return_streams=False,
                                          raster2xarray=True,
+                                         carve_dist=carve_dist,
+                                         flow_method=flow_method,
                                          **kwargs)
             self.dem = xr.merge([self.dem]+rasters)
         else:

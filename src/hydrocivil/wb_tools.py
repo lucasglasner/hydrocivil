@@ -98,7 +98,7 @@ def wbAttributes2DataFrame(obj: wbw.Vector) -> pd.DataFrame:
         obj (whitebox_workflows.Vector): A whitebox Vector object
 
     Returns:
-        df (pandas.DataFrame): Vector Attribute Table 
+        df (pd.DataFrame): Vector Attribute Table 
     """
     attrs = obj.attributes.fields
     names = [field.name for field in attrs]
@@ -135,8 +135,7 @@ def wbPoint2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
         xs.append(x)
         ys.append(y)
     xs, ys = np.array(xs).squeeze(), np.array(ys).squeeze()
-    gdf = gpd.points_from_xy(xs, ys)
-    gdf = gpd.GeoDataFrame(geometry=gdf, crs=crs)
+    gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(xs, ys), crs=crs)
     gdf_attrs = wbAttributes2DataFrame(obj)
     gdf = pd.concat([gdf_attrs, gdf], axis=1).set_geometry('geometry')
     return gdf
@@ -331,11 +330,10 @@ def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
     return wda
 
 
-def wbDEMflow(dem_no_deps: Union[wbw.Raster, xr.DataArray],
+def wbDEMflow(dem_no_deps: wbw.Raster | xr.DataArray,
               method: str = 'd8',
-              input_is_xarray: bool = False) -> Tuple[wbw.Raster,
-                                                      wbw.Raster,
-                                                      wbw.Raster]:
+              input_is_xarray: bool = False
+              ) -> Tuple[wbw.Raster | xr.DataArray, wbw.Raster | xr.DataArray]:
     """
     Given a depresionless DEM this function computes flow direction and 
     flow accumulation with different methods.
@@ -343,7 +341,8 @@ def wbDEMflow(dem_no_deps: Union[wbw.Raster, xr.DataArray],
         dem_no_deps (wbw.Raster, xr.DataArray): Input depresionless DEM. 
         flow_method (str, optional): Flow direction algorithm used for
             computing flow direction and flow accumulation rasters. 
-            Defaults to 'd8'. Options: 'd8', 'rho8', 'dinf', 'fd8'.
+            Defaults to 'd8'. Options include:
+                'd8', 'rho8', 'dinf', 'fd8', 'Mdinf', 'Quinn1995', 'Qin2007'.
         input_is_xarray (bool, optional): Whether to transform the input
             xarray object to a whitebox_workflows Raster. Defaults to False.
 
@@ -357,30 +356,42 @@ def wbDEMflow(dem_no_deps: Union[wbw.Raster, xr.DataArray],
         dem_no_deps = xarray2wbRaster(dem_no_deps)
 
     if method == 'd8':
-        flowdir = wbe.d8_pointer(dem_no_deps)
-        flowacc = wbe.d8_flow_accum(flowdir, input_is_pointer=True,
-                                    out_type='catchment area')
+        fdir = wbe.d8_pointer(dem_no_deps)
+        facc = wbe.d8_flow_accum(fdir, input_is_pointer=True,
+                                 out_type='catchment area')
     elif method == 'rho8':
-        flowdir = wbe.rho8_pointer(dem_no_deps)
-        flowacc = wbe.rho8_flow_accum(flowdir, input_is_pointer=True,
-                                      out_type='catchment area')
+        fdir = wbe.rho8_pointer(dem_no_deps)
+        facc = wbe.rho8_flow_accum(fdir, input_is_pointer=True,
+                                   out_type='catchment area')
     elif method == 'dinf':
-        flowdir = wbe.dinf_pointer(dem_no_deps)
-        flowacc = wbe.dinf_flow_accum(flowdir, input_is_pointer=True,
-                                      out_type='catchment area')
-    elif method == 'dinf':
-        flowdir = wbe.fd8_pointer(dem_no_deps)
-        flowacc = wbe.fd8_flow_accum(flowdir, input_is_pointer=True,
-                                     out_type='catchment area')
+        fdir = wbe.dinf_pointer(dem_no_deps)
+        facc = wbe.dinf_flow_accum(fdir, input_is_pointer=True,
+                                   out_type='catchment area')
+    elif method == 'fd8':
+        fdir = wbe.fd8_pointer(dem_no_deps)
+        facc = wbe.fd8_flow_accum(dem_no_deps,
+                                  out_type='catchment area')
+    elif method == 'Mdinf':
+        fdir = wbe.dinf_pointer(dem_no_deps)
+        facc = wbe.mdinf_flow_accum(dem_no_deps,
+                                    out_type='catchment area')
+    elif method == 'Quinn1995':
+        fdir = wbe.fd8_pointer(dem_no_deps)
+        facc = wbe.quinn_flow_accumulation(dem_no_deps,
+                                           out_type='catchment area')
+    elif method == 'Qin2007':
+        fdir = wbe.fd8_pointer(dem_no_deps)
+        facc = wbe.qin_flow_accumulation(dem_no_deps,
+                                         out_type='catchment area')
     else:
         text = f"'{method}': Unknown flow direction method!"
         raise ValueError(text)
 
     if input_is_xarray:
-        flowdir = wbRaster2xarray(flowdir).to_dataset(name='flowdir')
-        flowacc = wbRaster2xarray(flowacc).to_dataset(name='flowacc')
+        fdir = wbRaster2xarray(fdir).to_dataset(name='fdir')
+        facc = wbRaster2xarray(facc).to_dataset(name='facc')
 
-    return flowdir, flowacc
+    return fdir, facc
 
 
 def wbDEMfill(dem: Union[wbw.Raster, xr.DataArray],
@@ -463,7 +474,7 @@ def wbDEMpreprocess(dem: xr.DataArray,
     """
     Preprocess a DEM (Digital Elevation Model) using WhiteboxTools to create
     a depressionless DEM, compute flow direction, flow accumulation, and flow
-    length using the D8 algorithm. Optionally, extract stream networks.
+    length. Optionally, extract stream networks.
 
     Args:
         dem (xr.DataArray): Input DEM as an xarray DataArray.
@@ -474,8 +485,9 @@ def wbDEMpreprocess(dem: xr.DataArray,
         carve_dist (float, optional): Maximum distance to carve when breaching.
             Defaults to 0.
         flow_method (str, optional): Flow direction algorithm used for
-            computing flow direction and flow accumulation rasters. 
-            Defaults to 'd8'. Options: 'd8' or 'rho8'.
+            computing flow direction and flow accumulation rasters. Defaults to
+            'd8'. Options include: 'd8', 'rho8', 'dinf', 'fd8', 'Mdinf',
+            'Quinn1995', 'Qin2007'.
         return_streams (bool, optional): Whether to extract and return stream
             networks. Defaults to False.
         facc_threshold (float, optional): Threshold for flow
@@ -507,15 +519,15 @@ def wbDEMpreprocess(dem: xr.DataArray,
                                    fill_kws=fill_kws, breach_kws=breach_kws)
 
     # Compute flow direction, accumulation and flow path length
-    flowdir, flowacc = wbDEMflow(dem_no_deps, method=flow_method)
+    fdir, facc = wbDEMflow(dem_no_deps, method=flow_method)
 
     # Join rasters
     names = ['elevation_nodeps', 'sinks', 'fdir', 'facc']
-    rasters = [dem_no_deps, sinks, flowdir, flowacc]
+    rasters = [dem_no_deps, sinks, fdir, facc]
 
     # Compute vector streams if asked and return final results
     if return_streams:
-        streams_v, streams_r = wbDEMstreams(dem, flowdir, flowacc,
+        streams_v, streams_r = wbDEMstreams(dem, fdir, facc,
                                             facc_threshold=facc_threshold)
         names.append('streams')
         rasters.append(streams_r)
