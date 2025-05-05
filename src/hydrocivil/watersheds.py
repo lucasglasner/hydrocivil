@@ -106,8 +106,8 @@ class HydroDEM:
         """
         Processes the flow data using the WhiteboxTools package if available.
         This method preprocesses the digital elevation model (DEM) to generate
-        hydrological flow-related rasters. If the required package is not installed,
-        an ImportError is raised.
+        hydrological flow-related rasters. If the required package is not
+        installed, an ImportError is raised.
         Args:
             carve_dist (float, optional): Maximum distance to carve when
                 breaching. Defaults to 0.

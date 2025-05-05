@@ -344,12 +344,6 @@ def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
     Returns:
         (tuple): (basin polygon, river network segments, dem, curve_number)
     """
-    try:
-        import geopandas as gpd
-        import rioxarray as rxr
-    except Exception as e:
-        raise RuntimeError(e)
-
     if kind == 'swampy':
         return load_swampy_data()
     elif kind == 'steep':

@@ -11,7 +11,6 @@ import pandas as pd
 import numpy as np
 
 from typing import Union, Type, Tuple
-from numpy.typing import ArrayLike
 from scipy.interpolate import interp1d
 from scipy.integrate import odeint
 from .global_vars import GRAVITY
