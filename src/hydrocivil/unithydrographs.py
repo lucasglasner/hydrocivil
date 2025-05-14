@@ -8,7 +8,6 @@
 '''
 
 import warnings
-import matplotlib.axes
 import numpy as np
 import pandas as pd
 import scipy.signal as sg
@@ -16,7 +15,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 
 from math import gamma
-from typing import Union, Any, Tuple, Type
+from typing import Any, Tuple, Type
 from scipy.interpolate import interp1d
 from scipy.special import gamma
 from shapely.geometry import Point
@@ -513,7 +512,7 @@ class LumpedUnitHydrograph(object):
                                        DGAChileParams=True)
     """
 
-    def __init__(self, method: str, geoparams: Union[dict, pd.Series]
+    def __init__(self, method: str, geoparams: dict | pd.Series
                  ) -> Type['LumpedUnitHydrograph']:
         """
         Synthetic unit hydrograph (SUH) constructor.
@@ -737,11 +736,11 @@ class LumpedUnitHydrograph(object):
         self.SUnitHydro = SCurve_new
         return self
 
-    def convolve(self, rainfall: Union[pd.Series, pd.DataFrame], **kwargs: Any
-                 ) -> Union[pd.Series, pd.DataFrame]:
+    def convolve(self, rainfall: pd.Series | pd.DataFrame, **kwargs: Any
+                 ) -> pd.Series | pd.DataFrame:
         """
         Returns:
-            Union[pd.Series, pd.DataFrame]: The resulting flood hydrograph
+            pd.Series | pd.DataFrame: The resulting flood hydrograph
                 after convolving the rainfall series with the unit hydrograph.
 
         Args:

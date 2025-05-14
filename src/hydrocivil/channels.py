@@ -28,7 +28,7 @@ class RiverReach:
 
     """
 
-    def __init__(self, fid: Union[int, float, str],
+    def __init__(self, fid: int | float | str,
                  method: str):
         """
         Initializes the RiverReach object.

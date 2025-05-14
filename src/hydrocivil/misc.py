@@ -19,7 +19,7 @@ from osgeo import gdal, gdal_array
 from rasterio.features import shapes
 from shapely.geometry import shape, Point
 
-from typing import Union, Tuple, Any
+from typing import Tuple, Any
 from numpy.typing import ArrayLike
 from .global_vars import GDAL_EXCEPTIONS
 
@@ -97,8 +97,7 @@ def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
     return polygons
 
 
-def obj_to_xarray(obj: ArrayLike,
-                  **kwargs: Any) -> Union[xr.DataArray, xr.Dataset]:
+def obj_to_xarray(obj: ArrayLike, **kwargs: Any) -> xr.DataArray | xr.Dataset:
     """
     This function recieves an object and transform it to an xarray object.
     Only accepts pandas series, dataframes, numpy arrays, lists, tuples, or

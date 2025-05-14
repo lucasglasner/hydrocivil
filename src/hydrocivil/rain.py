@@ -13,7 +13,7 @@ import warnings
 import copy as pycopy
 import xarray as xr
 
-from typing import Union, Any, Type
+from typing import Any, Type
 from numpy.typing import ArrayLike
 from .abstractions import SCS_Abstractions, Horton_Abstractions
 from .abstractions import Philip_Abstractions, GreenAmpt_Abstractions
@@ -25,8 +25,8 @@ import scipy.stats as st
 # ----------------------- duration coefficient routines ---------------------- #
 
 
-def grunsky_coef(storm_duration: Union[int, float],
-                 ref_duration: Union[int, float] = 24,
+def grunsky_coef(storm_duration: int | float,
+                 ref_duration: int | float = 24,
                  expon: float = 0.5,) -> float:
     """
     This function computes the duration coefficient given by a Grunsky-like
@@ -57,8 +57,8 @@ def grunsky_coef(storm_duration: Union[int, float],
     return CD
 
 
-def bell_coef(storm_duration: Union[int, float],
-              ref_duration: Union[int, float] = 24) -> float:
+def bell_coef(storm_duration: int | float,
+              ref_duration: int | float = 24) -> float:
     """
     This function computes the duration coefficient
     given by the Bell Formula.
@@ -79,10 +79,10 @@ def bell_coef(storm_duration: Union[int, float],
     return CD
 
 
-def duration_coef(storm_duration: Union[int, float],
-                  ref_duration: Union[int, float] = 24,
-                  bell_threshold: Union[int, float] = 1,
-                  duration_threshold: Union[int, float] = 10/60) -> float:
+def duration_coef(storm_duration: int | float,
+                  ref_duration: int | float = 24,
+                  bell_threshold: int | float = 1,
+                  duration_threshold: int | float = 10/60) -> float:
     """
     The duration coefficient is a parameter used to transform a known duration
     precipitation to a new duration rain. For example it can be used to
@@ -265,7 +265,7 @@ class RainStorm(object):
         """
         return pycopy.deepcopy(self)
 
-    def compute(self, timestep: Union[int, float], duration: Union[int, float],
+    def compute(self, timestep: int | float, duration: int | float,
                 rainfall: ArrayLike, n: int = 0,
                 interp_kwargs: dict = {'method': 'linear'}
                 ) -> Type['RainStorm']:

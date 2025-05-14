@@ -212,8 +212,8 @@ def GreenAmpt_EffectiveRainfall(pr: float, duration: float, K: float, p: float,
 # ------------------------ SCS curve number equations ------------------------ #
 
 
-def cn_correction(cn_II: Union[int, float, ArrayLike],
-                  amc: str) -> Union[float, ArrayLike]:
+def cn_correction(cn_II: int | float | ArrayLike,
+                  amc: str) -> float | ArrayLike:
     """
     This function changes the curve number value according to antecedent
     moisture conditions (amc)...
@@ -249,8 +249,8 @@ def cn_correction(cn_II: Union[int, float, ArrayLike],
         raise RuntimeError(text)
 
 
-def SCS_MaximumRetention(cn: Union[int, float, ArrayLike],
-                         cfactor: float = 25.4) -> Union[float, ArrayLike]:
+def SCS_MaximumRetention(cn: int | float | ArrayLike,
+                         cfactor: float = 25.4) -> float | ArrayLike:
     """
     Calculate SCS soil maximum potential retention.
 
@@ -267,11 +267,11 @@ def SCS_MaximumRetention(cn: Union[int, float, ArrayLike],
     return cfactor*S if cn > 0 else np.nan
 
 
-def SCS_EquivalentCurveNumber(pr: Union[int, float, ArrayLike],
-                              pr_eff: Union[int, float, ArrayLike],
+def SCS_EquivalentCurveNumber(pr: int | float | ArrayLike,
+                              pr_eff: int | float | ArrayLike,
                               r: float = 0.2,
                               cfactor: float = 25.4
-                              ) -> Union[float, ArrayLike]:
+                              ) -> float | ArrayLike:
     """
     Given a rainfall ammount and the related effective precipitation (surface
     runoff) observed, this function computes the equivalent curve number of the
@@ -303,8 +303,8 @@ def SCS_EquivalentCurveNumber(pr: Union[int, float, ArrayLike],
 
 
 @np.vectorize
-def SCS_EffectiveRainfall(pr: Union[int, float],
-                          cn: Union[int, float],
+def SCS_EffectiveRainfall(pr: int | float,
+                          cn: int | float,
                           r: float = 0.2,
                           **kwargs: float) -> float:
     """
@@ -341,10 +341,10 @@ def SCS_EffectiveRainfall(pr: Union[int, float],
 
 
 @np.vectorize
-def SCS_Abstractions(pr: Union[int, float, ArrayLike],
-                     cn: Union[int, float, ArrayLike],
+def SCS_Abstractions(pr: int | float | ArrayLike,
+                     cn: int | float | ArrayLike,
                      r: float = 0.2,
-                     **kwargs: float) -> Union[float, ArrayLike]:
+                     **kwargs: float) -> float | ArrayLike:
     """
     SCS formula for overall water losses due to infiltration/abstraction.
     Losses are computed simply as total precipitation - total runoff. 

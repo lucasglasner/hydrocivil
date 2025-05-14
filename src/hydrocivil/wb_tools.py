@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from typing import Tuple, Union
+from typing import Tuple
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon
 import whitebox_workflows as wbw
@@ -394,7 +394,7 @@ def wbDEMflow(dem_no_deps: wbw.Raster | xr.DataArray,
     return fdir, facc
 
 
-def wbDEMfill(dem: Union[wbw.Raster, xr.DataArray],
+def wbDEMfill(dem: wbw.Raster | xr.DataArray,
               input_is_xarray: bool = False,
               carve_dist: float = 0,
               fill_kws: dict = {},

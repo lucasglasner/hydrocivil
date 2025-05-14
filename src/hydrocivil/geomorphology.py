@@ -13,7 +13,7 @@ import geopandas as gpd
 import xarray as xr
 import warnings
 
-from typing import Union, Any, Tuple
+from typing import Any, Tuple
 from numpy.typing import ArrayLike
 from shapely.geometry import Point
 from osgeo import gdal, gdal_array
@@ -111,8 +111,8 @@ def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph
     return G, gdf_segments
 
 
-def get_main_river(river_network: Union[gpd.GeoSeries, gpd.GeoDataFrame]
-                   ) -> Union[gpd.GeoSeries, gpd.GeoDataFrame]:
+def get_main_river(river_network: gpd.GeoSeries | gpd.GeoDataFrame
+                   ) -> gpd.GeoSeries | gpd.GeoDataFrame:
     """
     For a given river network (shapefile with river segments) this functions
     creates a graph with the river network and computes the main river with the
@@ -137,7 +137,7 @@ def get_main_river(river_network: Union[gpd.GeoSeries, gpd.GeoDataFrame]
     return main_river
 
 
-def basin_outlet(basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+def basin_outlet(basin: gpd.GeoSeries | gpd.GeoDataFrame,
                  dem: xr.DataArray, n: int = 3
                  ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -163,8 +163,8 @@ def basin_outlet(basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
     return (outlet_y, outlet_x)
 
 
-def basin_geographical_params(fid: Union[str, int, float],
-                              basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+def basin_geographical_params(fid: str | int | float,
+                              basin: gpd.GeoSeries | gpd.GeoDataFrame,
                               outlet: ArrayLike = None) -> pd.DataFrame:
     """
     Given a basin id and a basin polygon as a geopandas object 
@@ -262,7 +262,7 @@ def terrain_exposure(aspect: xr.DataArray,
     return dir_perc
 
 
-def basin_terrain_params(fid: Union[str, int, float], dem: xr.DataArray
+def basin_terrain_params(fid: str | int | float, dem: xr.DataArray
                          ) -> pd.DataFrame:
     """
     From an identifier (fid) and a digital elevation model (DEM) loaded
@@ -310,8 +310,8 @@ def basin_terrain_params(fid: Union[str, int, float], dem: xr.DataArray
 # -------------------- Concentration time for rural basins ------------------- #
 
 
-def tc_SCS(mriverlen: Union[int, float], meanslope: Union[int, float],
-           curvenumber: Union[int, float], **kwargs: Any) -> float:
+def tc_SCS(mriverlen: int | float, meanslope: int | float,
+           curvenumber: int | float, **kwargs: Any) -> float:
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -338,8 +338,8 @@ def tc_SCS(mriverlen: Union[int, float], meanslope: Union[int, float],
     return Tc
 
 
-def tc_kirpich(mriverlen: Union[int, float], hmax: Union[int, float],
-               hmin: Union[int, float], **kwargs: Any) -> float:
+def tc_kirpich(mriverlen: int | float, hmax: int | float,
+               hmin: int | float, **kwargs: Any) -> float:
     """
     Kirpich equation method.
     Valid for small and rural basins ¿?.
@@ -361,8 +361,8 @@ def tc_kirpich(mriverlen: Union[int, float], hmax: Union[int, float],
     return Tc
 
 
-def tc_giandotti(mriverlen: Union[int, float], hmean: Union[int, float],
-                 hmin: Union[int, float], area: Union[int, float],
+def tc_giandotti(mriverlen: int | float, hmean: int | float,
+                 hmin: int | float, area: int | float,
                  **kwargs: Any) -> float:
     """
     Giandotti equation method.
@@ -395,8 +395,8 @@ def tc_giandotti(mriverlen: Union[int, float], hmean: Union[int, float],
         return np.nan
 
 
-def tc_california(mriverlen: Union[int, float], hmax: Union[int, float],
-                  hmin: Union[int, float], **kwargs: Any) -> float:
+def tc_california(mriverlen: int | float, hmax: int | float,
+                  hmin: int | float, **kwargs: Any) -> float:
     """
     California Culverts Practice (1942) equation.
     Valid for mountain basins ¿?.
@@ -419,7 +419,7 @@ def tc_california(mriverlen: Union[int, float], hmax: Union[int, float],
     return Tc
 
 
-def tc_spain(mriverlen: Union[int, float], meanslope: Union[int, float],
+def tc_spain(mriverlen: int | float, meanslope: int | float,
              **kwargs: Any) -> float:
     """
     Equation of Spanish/Spain regulation.

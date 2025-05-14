@@ -5,29 +5,30 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hydrocivil"
 version = "1.0.4"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
 authors = [
   { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
 ]
 description = "a package for hydrological methods in civil and enviromental engineering"
 dependencies = [
-    "numpy",
-    "matplotlib",
-    "scipy",
-    "pandas",
-    "pyproj",
-    "ipykernel",
-    "xarray",
-    "shapely",
+    "dask",
+    "gdal",
     "geopandas",
-    "rasterio",
-    "rioxarray",
+    "ipykernel",
+    "matplotlib",
+    "netCDF4",
     "networkx",
-    "ipykernel>=6.29.5",
+    "numba",
+    "numpy",
+    "openpyxl",
+    "pandas",
+    "rasterio",
+    "shapely",
+    "xarray",
+    "rioxarray"
 ]
-
-readme = "README.md"
-requires-python = ">=3.10"
-license = "MIT"
 
 [project.optional-dependencies]
 dev = [

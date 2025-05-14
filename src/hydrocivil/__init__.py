@@ -24,7 +24,7 @@ from . import (
 
 # Direct class imports
 from .global_vars import _has_whitebox
-from .watersheds import RiverBasin
+from .watersheds import RiverBasin, HydroDEM
 from .rain import RainStorm
 from .reservoirs import Reservoir
 from .channels import RiverReach
@@ -49,9 +49,10 @@ __license__ = "MIT"
 
 from typing import List
 __all__: List[str] = [
+    'HydroDEM',
     'RiverBasin',
     'LumpedUnitHydrograph',
     'RainStorm',
     'Reservoir',
-    'RiverReach'
+    'RiverReach',
 ]

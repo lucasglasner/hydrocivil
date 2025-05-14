@@ -10,7 +10,7 @@
 import pandas as pd
 import numpy as np
 
-from typing import Union, Type, Tuple
+from typing import Type, Tuple
 from scipy.interpolate import interp1d
 from scipy.integrate import odeint
 from .global_vars import GRAVITY
@@ -35,7 +35,7 @@ class Reservoir:
             relationship between stage (index) and discharge (values).
     """
 
-    def __init__(self, fid: Union[int, float, str],
+    def __init__(self, fid: int | float | str,
                  stage_area: pd.Series = None,
                  stage_storage: pd.Series = None,
                  stage_discharge: pd.Series = None) -> Type["Reservoir"]:

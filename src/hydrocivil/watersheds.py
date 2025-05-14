@@ -18,7 +18,7 @@ import xarray as xr
 import matplotlib
 import matplotlib.pyplot as plt
 
-from typing import Union, Any, Type, Tuple
+from typing import Any, Type, Tuple
 from osgeo import gdal
 from scipy.interpolate import interp1d
 
@@ -165,7 +165,7 @@ class HydroDEM:
         """
         return terrain_exposure(self.dem.aspect, **kwargs)
 
-    def get_hypsometric_curve(self, bins: Union[str, int, float] = 'auto',
+    def get_hypsometric_curve(self, bins: str | int | float = 'auto',
                               **kwargs: Any) -> pd.Series:
         """
         Compute the hypsometric curve of the digital elevation model. The
@@ -189,7 +189,7 @@ class HydroDEM:
         curve = raster_distribution(self.dem.elevation, bins=bins, **kwargs)
         return curve.cumsum().drop_duplicates()
 
-    def area_below_height(self, height: Union[int, float], **kwargs: Any
+    def area_below_height(self, height: int | float, **kwargs: Any
                           ) -> float:
         """
         With the hypsometric curve compute the fraction of area below
@@ -274,10 +274,10 @@ class RiverBasin(HydroDEM):
             -> flood = wshed.UnitHydro.convolve(rainfall)
     """
 
-    def __init__(self, fid: Union[str, int, float],
-                 basin: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+    def __init__(self, fid: str | int | float,
+                 basin: gpd.GeoSeries | gpd.GeoDataFrame,
                  dem: xr.DataArray,
-                 rivers: Union[gpd.GeoSeries, gpd.GeoDataFrame] = None,
+                 rivers: gpd.GeoSeries | gpd.GeoDataFrame = None,
                  cn: xr.DataArray = None,
                  amc: str = 'II') -> None:
         """
@@ -286,9 +286,9 @@ class RiverBasin(HydroDEM):
         segments, curve number raster, and antecedent moisture condition (AMC).
 
         Args:
-            basin (Union[gpd.GeoSeries, gpd.GeoDataFrame]): Watershed polygon
+            basin (gpd.GeoSeries | gpd.GeoDataFrame): Watershed polygon
             dem (xr.DataArray): Digital elevation model
-            rivers (Union[gpd.GeoSeries, gpd.GeoDataFrame], optional):
+            rivers (gpd.GeoSeries | gpd.GeoDataFrame, optional):
                 River network segments. Defaults to None.
             cn (xr.DataArray, optional): Curve Number raster. Defaults to None,
                 which leads to an empty curve number raster.
@@ -603,7 +603,7 @@ class RiverBasin(HydroDEM):
 
         return self
 
-    def clip(self, polygon: Union[gpd.GeoSeries, gpd.GeoDataFrame],
+    def clip(self, polygon: gpd.GeoSeries | gpd.GeoDataFrame,
              **kwargs: Any) -> Type['RiverBasin']:
         """
         Clip watershed data to a specified polygon boundary and create a new
@@ -613,7 +613,7 @@ class RiverBasin(HydroDEM):
         the clipped area.
 
         Args:
-            polygon (Union[gpd.GeoSeries, gpd.GeoDataFrame]): Polygon defining
+            polygon (gpd.GeoSeries | gpd.GeoDataFrame): Polygon defining
                 the clip boundary. Must be in the same coordinate reference
                 system (CRS) as the watershed data.
             **kwargs (Any): Additional keyword arguments to pass to
@@ -659,7 +659,7 @@ class RiverBasin(HydroDEM):
         nwshed.compute_params(**kwargs)
         return nwshed
 
-    def update_snowlimit(self, snowlimit: Union[int, float],
+    def update_snowlimit(self, snowlimit: int | float,
                          clean_perc: float = 0.1,
                          polygonize_kwargs: dict = {},
                          **kwargs: Any) -> Type['RiverBasin']:
