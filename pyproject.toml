@@ -11,7 +11,7 @@ license = "MIT"
 authors = [
   { name="Lucas Glasner", email="lgvivanco96@gmail.com" },
 ]
-description = "a package for hydrological methods in civil and enviromental engineering"
+description = "a package for hydrological methods in enviromental engineering"
 dependencies = [
     "dask",
     "gdal",
