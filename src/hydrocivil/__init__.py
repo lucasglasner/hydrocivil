@@ -42,7 +42,7 @@ if _has_whitebox:
     from .wb_tools import wbe
 
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 __author__ = "Lucas Glasner"
 __email__ = "lgvivanco96@gmail.com"
 __license__ = "MIT"
