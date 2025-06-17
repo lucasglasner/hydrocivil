@@ -14,8 +14,6 @@ import xarray as xr
 import warnings
 
 from typing import Any, Tuple
-from numpy.typing import ArrayLike
-from shapely.geometry import Point
 from osgeo import gdal, gdal_array
 import networkx as nx
 
@@ -108,6 +106,8 @@ def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph
     node_topo_order = {node: i for i, node in enumerate(topo_order)}
     edge_topo_order = {(u, v): node_topo_order[u] for u, v in G.edges()}
     nx.set_edge_attributes(G, edge_topo_order, "topological_order")
+    gdf_segments['topological_order'] = list(edge_topo_order.values())
+    gdf_segments = gdf_segments.sort_values(by='topological_order')
     return G, gdf_segments
 
 
@@ -134,6 +134,7 @@ def get_main_river(river_network: gpd.GeoSeries | gpd.GeoDataFrame
 
     top_order = [G.edges[edge]['topological_order'] for edge in mriver_edges]
     main_river['topological_order'] = top_order
+    main_river = main_river.sort_values(by='topological_order')
     return main_river
 
 
@@ -161,55 +162,6 @@ def basin_outlet(basin: gpd.GeoSeries | gpd.GeoDataFrame,
     outlet_point = dem_boundary.isel(**dem_boundary.argmin(['y', 'x']))
     outlet_y, outlet_x = outlet_point.y.item(), outlet_point.x.item()
     return (outlet_y, outlet_x)
-
-
-def basin_geographical_params(fid: str | int | float,
-                              basin: gpd.GeoSeries | gpd.GeoDataFrame,
-                              outlet: ArrayLike = None) -> pd.DataFrame:
-    """
-    Given a basin id and a basin polygon as a geopandas object 
-    this function computes the "geographical" or vector properties of
-    the basin (i.e centroid coordinates, area, perimeter and outlet to
-    centroid length.)
-
-    Args:
-        fid (str|int|float): basin identifier
-        basin (geopandas.GeoSeries|geopandas.GeoDataFrame): basin polygon
-        outlet (ArrayLike, optional): shape (2,) array with basin x,y outlet
-            point. Defaults to None
-    Raises:
-        RuntimeError: If outlet == None and the basin doesnt have the drainage
-            point in the attribute table. (outlet_x and outlet_y columns)
-
-    Returns:
-        pandas.DataFrame: table with parameters
-    """
-    if outlet is not None:
-        outlet_x, outlet_y = (outlet[0], outlet[1])
-        basin['outlet_x'] = outlet_x
-        basin['outlet_y'] = outlet_y
-
-    if not (('outlet_x' in basin.columns) or ('outlet_y' in basin.columns)):
-        error = 'Basin polygon attribute table must have an "outlet_x" and'
-        error = error+' "outlet_y" columns.'
-        error = error+' If not, use the outlet argument.'
-        raise RuntimeError(error)
-
-    params = pd.DataFrame([], index=[fid])
-    params['EPSG'] = basin.crs.to_epsg()
-    params['outlet_x'] = basin.outlet_x.item()
-    params['outlet_y'] = basin.outlet_y.item()
-    params['centroid_x'] = basin.centroid.x.item()
-    params['centroid_y'] = basin.centroid.y.item()
-    params['area'] = basin.area.item()/1e6
-    params['perim'] = basin.boundary.length.item()/1e3
-
-    # Outlet to centroid
-    outlet = Point(basin.outlet_x.item(), basin.outlet_y.item())
-    out2cen = basin.centroid.distance(outlet)
-    params['out2centroidlen'] = out2cen.item()/1e3
-
-    return params
 
 
 def terrain_exposure(aspect: xr.DataArray,
@@ -260,53 +212,6 @@ def terrain_exposure(aspect: xr.DataArray,
     dir_perc = pd.Series(dir_perc.values(),
                          index=dir_perc.keys(), **kwargs)
     return dir_perc
-
-
-def basin_terrain_params(fid: str | int | float, dem: xr.DataArray
-                         ) -> pd.DataFrame:
-    """
-    From an identifier (fid) and a digital elevation model (DEM) loaded
-    as an xarray object, this function computes the following properties:
-    1) Minimum, mean, median and maximum height
-    2) Difference between maximum and minimum height
-    3) Difference between mean and minimum height
-    4) Mean slope if slope is in the dataset
-    5) % of the terrain in each of the 8 directions (N,S,W,E,SW,SE,NW,NE)
-
-    Args:
-        fid (_type_): basin identifier
-        dem (xarray.Dataset): Digital elevation model
-
-    Returns:
-        pandas.DataFrame: Table with terrain-derived parameters
-    """
-    if 'elevation' not in dem.variables:
-        text = 'Input dem must be an xarray dataset with an "elevation" \
-                variable'
-        raise RuntimeError(text)
-    params = pd.DataFrame([], index=[fid])
-
-    # Height parameters
-    params['hmin'] = dem.elevation.min().item()
-    params['hmax'] = dem.elevation.max().item()
-    params['hmean'] = dem.elevation.mean().item()
-    params['hmed'] = dem.elevation.median().item()
-    params['deltaH'] = params['hmax']-params['hmin']
-    params['deltaHm'] = params['hmean']-params['hmin']
-
-    # Slope parameters
-    if 'slope' in dem.variables:
-        params['meanslope'] = dem.slope.mean().item()
-    else:
-        warnings.warn('"slope" variable doesnt exists in the dataset!')
-
-    # Exposure/Aspect parameters
-    if 'aspect' in dem.variables:
-        dir_perc = terrain_exposure(dem.aspect, name=fid)
-        params = pd.concat(((params.T, dir_perc)), axis=0).T
-    else:
-        warnings.warn('"aspect" variable doesnt exists in the dataset!')
-    return params
 # -------------------- Concentration time for rural basins ------------------- #
 
 
@@ -385,10 +290,10 @@ def tc_giandotti(mriverlen: int | float, hmean: int | float,
     """
     a = (4*area**0.5+1.5*mriverlen)
     b = (0.8*(hmean-hmin)**0.5)
-    Tc = 60*a/b
+    Tc = a/b
 
-    if (Tc/60 >= mriverlen/5.4) or (Tc/60 <= mriverlen/3.6):
-        return Tc
+    if (Tc >= mriverlen/5.4) and (Tc <= mriverlen/3.6):
+        return Tc*60
     else:
         text = "Giandotti: The condition 'L/3.6 >= Tc >= L/5.4' was not met!"
         warnings.warn(text)

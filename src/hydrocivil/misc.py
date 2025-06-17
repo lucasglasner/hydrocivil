@@ -63,14 +63,21 @@ def raster_cross_section(raster: xr.DataArray, line: gpd.GeoSeries,
 
     # Get point and x,y coordinates
     points = [Point(p[0], p[1]) for p in line_coords]
+    dist = [points[i].distance(points[i+1]) for i in range(len(points)-1)]
+    dist = np.hstack((0, np.cumsum(dist)))
+    if dist[-1] - line.length.sum() > 1e-5:
+        raise ValueError("Line length and cumulative distance do not match. "
+                         "Check the line geometry.")
     xs, ys = zip(*[(p.x, p.y) for p in points])
 
     # Sample raster with points with interpolation
     xs = xr.DataArray(list(xs), dims=('points'))
     ys = xr.DataArray(list(ys), dims=('points'))
-    data = raster.interp(x=xs, y=ys, **kwargs).to_series()
-    points = gpd.GeoSeries(points)
-    return data, points
+    data = raster.interp(x=xs, y=ys, **kwargs)
+    data.coords['points'] = range(len(points))
+    data.coords['dist'] = ('points', dist)
+    data = data.swap_dims({'points': 'dist'})
+    return data
 
 
 def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
@@ -261,6 +268,34 @@ def raster_distribution(raster: xr.DataArray, **kwargs: Any) -> pd.Series:
     dist, values = np.histogram(values, **kwargs)
     dist, values = dist/total_pixels, 0.5*(values[:-1]+values[1:])
     return pd.Series(dist, index=values, name=f'{raster.name}_dist')
+
+
+def sharegrids(ds1, ds2, dimnames={'x': 'x', 'y': 'y'}):
+    """
+    Check if two rasters have the same grid.
+
+    Parameters
+    ----------
+    ds1, ds2 : xarray.DataArray
+        Raster arrays to compare.
+    dimnames : dict, optional
+        Dictionary mapping 'x' and 'y' to coordinate names.
+
+    Returns
+    -------
+    bool
+        True if both rasters have the same shape and coordinates, else False.
+    """
+    if ds1.shape != ds2.shape:
+        return False
+
+    x1, y1 = ds1[dimnames['x']], ds1[dimnames['y']]
+    x2, y2 = ds2[dimnames['x']], ds2[dimnames['y']]
+    if (x1 != x2).sum() > 0:
+        return False
+    if (y1 != y2).sum() > 0:
+        return False
+    return True
 
 # ----------------------------- resources access ----------------------------- #
 

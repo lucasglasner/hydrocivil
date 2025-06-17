@@ -10,7 +10,6 @@
 from scipy.optimize import root_scalar
 import numpy as np
 from numpy.typing import ArrayLike
-from typing import Union
 
 # ----------------------------- Horton equations ----------------------------- #
 

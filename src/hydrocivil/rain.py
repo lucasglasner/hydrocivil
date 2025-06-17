@@ -131,7 +131,7 @@ def duration_coef(storm_duration: int | float,
 # ------------------------------- Design Storms ------------------------------ #
 
 
-class RainStorm(object):
+class RainStorm:
     """
     RainStorm class used to building temporal rainfall distributions. 
     The class can be used to build rainstorms that follow any of scipy
@@ -139,27 +139,6 @@ class RainStorm(object):
     the empirical rain distributions of the SCS type I, IA, II, III and the 
     Chilean synthetic hyetographs of (Espildora and Echavarría 1979),
     (Benitez and Verni 1985) and (Varas 1985). 
-
-    Examples:
-        + Distribute a 24 hour 100 mm rainstorm in a 12 hour gaussian pulse
-        -> storm = RainStorm('norm')
-        -> storm = storm.compute(timestep=0.5, duration=12, rainfall=100)
-        -> storm.pr.plot()
-
-        + Create a 24 hour storm following the SCS type I hyetograph with 
-        + pulses every 10 minutes and a total precipitation of 75 mm.
-        + Then compute infiltration using SCS method and a basin CN of 75
-        -> storm = RainStorm('SCS_I24')
-        -> storm = storm.compute(timestep=10/60, duration=24, rainfall=75)
-        -> storm = storm.infiltrate(method='SCS', cn=75)
-        -> storm.pr.plot() # Precipitation rate
-        -> storm.infr.plot() # Infiltration rate
-
-        + Create a narrow and wide gaussian pulse of 100 mm in 12 hours
-        -> narrow = RainStorm('norm', loc=0.5, scale=0.05)
-        -> wide   = RainStorm('norm', loc=0.5, scale=0.15)
-        -> narrow = storm.compute(timestep=0.5, duration=12, rainfall=100)
-        -> wide   = storm.compute(timestep=0.5, duration=12, rainfall=100)
     """
     PREDEFINED_STORMS = SHYETO_DATA.columns
 
@@ -318,22 +297,22 @@ class RainStorm(object):
         self.time = pr.time.values
         return self
 
-    def _infiltrate_SCS(self, cn: float, **kwargs):
+    def _infiltrate_SCS(self, cn: float, r: float = 0.2, **kwargs):
         """
         Compute infiltration rate using the SCS method.
 
         Args:
             cn (array_like or float): Curve Number
             **kwargs are passed to xr.apply_ufunc
+            r (float): Initial abstraction ratio, default 0.2
 
         Returns:
             (array_like): Infiltration rate [mm/h]
         """
         # Compute losses
         pr_cum = self.pr.cumsum('time')*self.timestep  # Accumulate over time
-        infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn,
-
-                                  input_core_dims=[['time'], []],
+        infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn, r,
+                                  input_core_dims=[['time'], [], []],
                                   output_core_dims=[['time']],
                                   vectorize=True,
                                   **kwargs)
@@ -438,11 +417,13 @@ class RainStorm(object):
         if method == 'SCS':
             # Grab curve number from keyword arguments
             cn = kwargs['cn']
+            r = kwargs['r']
             kwargs = kwargs.copy()
             kwargs.pop('cn', None)
+            kwargs.pop('r', None)
 
             # Compute losses
-            infr = self._infiltrate_SCS(cn=cn, **kwargs)
+            infr = self._infiltrate_SCS(cn=cn, r=r, **kwargs)
 
         elif method == 'Horton':
             # Grab parameters from keyword arguments

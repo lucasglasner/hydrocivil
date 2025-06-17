@@ -251,6 +251,8 @@ def wbVector2geopandas(obj: wbw.Vector, crs: str = None) -> gpd.GeoDataFrame:
     Returns:
         gdf (geopandas.GeoDataFrame): Vector layer as a GeoDataFrame object
     """
+    if obj is None:
+        return gpd.GeoDataFrame()
     from whitebox_workflows import VectorGeometryType
     obj_type = obj.header.shape_type.base_shape_type()
     if obj_type == VectorGeometryType.Point:
@@ -325,6 +327,7 @@ def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
         fpath = os.path.join(tmpdirname, f'{os.path.basename(tmpdirname)}.tif')
+        da.attrs.pop('_FillValue', None)
         da.rio.to_raster(fpath)
         wda = wbe.read_raster(fpath).deep_copy()
     return wda
@@ -387,11 +390,13 @@ def wbDEMflow(dem_no_deps: wbw.Raster | xr.DataArray,
         text = f"'{method}': Unknown flow direction method!"
         raise ValueError(text)
 
+    # Compute flow path length
+    flen = wbe.downslope_flowpath_length(fdir)
     if input_is_xarray:
         fdir = wbRaster2xarray(fdir).to_dataset(name='fdir')
         facc = wbRaster2xarray(facc).to_dataset(name='facc')
-
-    return fdir, facc
+        flen = wbRaster2xarray(flen).to_dataset(name='flen')
+    return fdir, facc, flen
 
 
 def wbDEMfill(dem: wbw.Raster | xr.DataArray,
@@ -519,11 +524,11 @@ def wbDEMpreprocess(dem: xr.DataArray,
                                    fill_kws=fill_kws, breach_kws=breach_kws)
 
     # Compute flow direction, accumulation and flow path length
-    fdir, facc = wbDEMflow(dem_no_deps, method=flow_method)
+    fdir, facc, flen = wbDEMflow(dem_no_deps, method=flow_method)
 
     # Join rasters
-    names = ['elevation_nodeps', 'sinks', 'fdir', 'facc']
-    rasters = [dem_no_deps, sinks, fdir, facc]
+    names = ['elevation_nodeps', 'sinks', 'fdir', 'facc', 'flen']
+    rasters = [dem_no_deps, sinks, fdir, facc, flen]
 
     # Compute vector streams if asked and return final results
     if return_streams:
