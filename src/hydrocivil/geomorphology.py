@@ -290,13 +290,16 @@ def tc_giandotti(mriverlen: int | float, hmean: int | float,
     a = (4*area**0.5+1.5*mriverlen)
     b = (0.8*(hmean-hmin)**0.5)
     Tc = a/b
-    if validate:
-        if (Tc >= mriverlen/5.4) and (Tc <= mriverlen/3.6):
-            return Tc*60
-        else:
+
+    if (Tc >= mriverlen/5.4) and (Tc <= mriverlen/3.6):
+        return Tc*60
+    else:
+        if validate:
             text = "Giandotti: The condition 'L/3.6 >= Tc >= L/5.4' was not met!"
             warnings.warn(text)
             return np.nan
+        else:
+            return Tc*60
 
 
 def tc_california(mriverlen: int | float, hmax: int | float,
