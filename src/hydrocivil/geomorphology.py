@@ -383,7 +383,8 @@ def concentration_time(method: str, **kwargs: Any) -> float:
         'Giandotti': tc_giandotti,
         'Kirpich': tc_kirpich,
         'SCS': tc_SCS,
-        'Spain': tc_spain
+        'Spain': tc_spain,
+        'BransbyWilliams': tc_bransbywilliams
     }
 
     if method not in methods:
