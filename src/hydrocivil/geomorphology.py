@@ -243,8 +243,8 @@ def tc_SCS(mriverlen: int | float, meanslope: int | float,
     return Tc
 
 
-def tc_kirpich(mriverlen: int | float, hmax: int | float,
-               hmin: int | float, **kwargs: Any) -> float:
+def tc_kirpich(mriverlen: int | float, meanslope: int | float,
+               **kwargs: Any) -> float:
     """
     Kirpich equation method.
     Valid for small and rural basins ¿?.
@@ -254,20 +254,19 @@ def tc_kirpich(mriverlen: int | float, hmax: int | float,
 
     Args:
         mriverlen (float): Main river length in (km)
-        hmax (float): Basin maximum height (m)
-        hmin (float): Basin minimum height (m)
+        meanslope (float): Mean slope in m/m
         **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    deltaheights = hmax-hmin
-    Tc = ((1000*mriverlen)**1.15)/(deltaheights**0.385)/51
+    Tc = 3.97*(mriverlen ^ 0.77)*(meanslope ^ -0.385)
     return Tc
 
 
 def tc_giandotti(mriverlen: int | float, hmean: int | float,
                  hmin: int | float, area: int | float,
+                 validate: bool = True,
                  **kwargs: Any) -> float:
     """
     Giandotti equation method.
@@ -291,13 +290,13 @@ def tc_giandotti(mriverlen: int | float, hmean: int | float,
     a = (4*area**0.5+1.5*mriverlen)
     b = (0.8*(hmean-hmin)**0.5)
     Tc = a/b
-
-    if (Tc >= mriverlen/5.4) and (Tc <= mriverlen/3.6):
-        return Tc*60
-    else:
-        text = "Giandotti: The condition 'L/3.6 >= Tc >= L/5.4' was not met!"
-        warnings.warn(text)
-        return np.nan
+    if validate:
+        if (Tc >= mriverlen/5.4) and (Tc <= mriverlen/3.6):
+            return Tc*60
+        else:
+            text = "Giandotti: The condition 'L/3.6 >= Tc >= L/5.4' was not met!"
+            warnings.warn(text)
+            return np.nan
 
 
 def tc_california(mriverlen: int | float, hmax: int | float,
@@ -341,6 +340,23 @@ def tc_spain(mriverlen: int | float, meanslope: int | float,
         Tc (float): Concentration time (minutes)
     """
     Tc = 18*(mriverlen**0.76)/((meanslope*100)**0.19)
+    return Tc
+
+
+def tc_bransbywilliams(area: int | float,
+                       mriverlen: int | float,
+                       meanslope: int | float) -> float:
+    """
+    Calculates the concentration time (Tc) using the Bransby Williams formula.
+
+    Args:
+        area (int | float): Drainage area in (km2).
+        mriverlen (int | float): Main river length in (km)
+        meanslope (int | float): Mean slope in m/m
+    Returns:
+        Tc (float): Concentration time (minutes).
+    """
+    Tc = 14.46 * (mriverlen) / (meanslope ** 0.2) / (area ** 0.1)
     return Tc
 
 

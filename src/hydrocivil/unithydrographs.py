@@ -482,34 +482,13 @@ def SUH_Linsley(area: float, mriverlen: float, out2centroidlen: float,
 # ------------------------------- MAIN CLASSES ------------------------------- #
 
 
-class LumpedUnitHydrograph(object):
+class LumpedUnitHydrograph():
     """
-    Synthetic Unit Hydrograph class used for building unit hydrograph of
-    river basins as a function of geomorphometric and land use properties.
-    The class can be used to build the Clark,  SCS, Linsley or Gray unit
-    hydrographs. Optionally, for Gray and Linsley methods, pre-calibrated
-    Chilean parameters are available following the national flood manual.
-
-    Examples:
-        + Compute SCS UH for a storm duration of 1 hour.
-        + Show params and the related S-Curve
-        -> suh = LumpedUnitHydrograph(method='SCS', geoparams=geoparams)
-        -> suh.compute(timestep=1)
-        -> suh.UnitHydroParams
-        -> suh.SHydrograph
-
-        + Compute convolution of unit hydrograph and a series of rainfall
-        -> suh.convolve(rainfall)
-
-        + Change duration of unit hydrograph to 30 minutes and compute
-        + convolution with a new series of 30 minute rainfall pulses
-        -> suh.update_duration(30/60).convolve(rainfall2)
-
-        + Compute Linsley or Gray UH with Chilean default parameters:
-        -> linsley = LumpedUnitHydrograph(method='Linsley', geoparams=geoparams,
-                                          DGAChileParams=True)
-        -> gray = LumpedUnitHydrograph(method='Gray', geoparams=geoparams,
-                                       DGAChileParams=True)
+    Synthetic Unit Hydrograph class for constructing unit hydrographs of
+    river basins based on geomorphometric and land use properties. Supports
+    Clark, SCS, Linsley, and Gray methods. For Gray and Linsley, optional
+    pre-calibrated Chilean parameters are available, following the national
+    flood manual.
     """
 
     def __init__(self, method: str, geoparams: dict | pd.Series
@@ -529,20 +508,6 @@ class LumpedUnitHydrograph(object):
         self.UnitHydro = None
         self.SUnitHydro = None
         self.params = None
-
-    def __repr__(self) -> str:
-        """
-        What to show when invoking a SynthUnitHydro object
-        Returns:
-            str: Some metadata
-        """
-        text = f'SynthUnitHydro(method=\'{self.method}\', '
-        text = text+f'timestep={self.timestep}'
-        if len(self.kwargs.items()) != 0:
-            text = text+', '
-            text = text+', '.join([f'{x}={y}' for x, y in self.kwargs.items()])
-        text = text+')'
-        return text
 
     def _Clark(self, timestep: float, tc_formula: str = 'SCS', **kwargs: Any
                ) -> Tuple[pd.Series, pd.Series]:
@@ -580,6 +545,9 @@ class LumpedUnitHydrograph(object):
             tc_formula (str, optional): Empirical formula used for computing
                 the time of concentration. Options: 'California', 'Giandotti',
                 'Kirpich', 'SCS', 'Spain'. Defaults to 'SCS'.
+            **kwargs: Additional parameters for the SCS model. If tc given in
+                      kwargs, it will be used instead of computing it from the
+                      tc_formula.
 
         Returns:
             (tuple): tuple with the unit hydrograph time series and the

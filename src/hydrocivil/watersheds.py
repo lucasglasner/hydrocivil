@@ -96,7 +96,7 @@ class HydroDEM:
         self.hypsometric_curve = self.get_hypsometric_curve()
 
         # Height-derived parameters
-        params = pd.Series([])
+        params = pd.Series()
         params['hmin'] = self.dem.elevation.min().item()
         params['hmax'] = self.dem.elevation.max().item()
         params['hmean'] = self.dem.elevation.mean().item()
@@ -239,7 +239,8 @@ class HydroLULC:
         if isinstance(lulc, xr.DataArray):
             lulc = lulc.to_dataset(name=lulc.name)
         for var in lulc.variables:
-            lulc[var] = lulc[var].rio.write_nodata(-9999).squeeze().copy()
+            lulc[var] = lulc[var].squeeze().copy()
+            # lulc[var] = lulc[var].where(lulc[var] != -9999)
 
         if 'cn' in lulc.variables:
             if 'amc' in kwargs.keys():
@@ -578,7 +579,7 @@ class RiverBasin(HydroDEM, HydroLULC):
         perim = self.geoparams.loc['perimeter'].item()
         eqperim = 2*np.pi*np.sqrt(area/np.pi)
 
-        self.flow_params = pd.Series()
+        self.flow_params = pd.Series([])
         self.flow_params['mriverlen'] = mriverlen
         self.flow_params['mriverslope'] = mriverslope
         self.flow_params['drainage_density'] = cumlen/area
