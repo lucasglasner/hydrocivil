@@ -260,7 +260,7 @@ def tc_kirpich(mriverlen: int | float, meanslope: int | float,
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    Tc = 3.97*(mriverlen ^ 0.77)*(meanslope ^ -0.385)
+    Tc = 3.97*(mriverlen ** 0.77)*(meanslope ** -0.385)
     return Tc
 
 
