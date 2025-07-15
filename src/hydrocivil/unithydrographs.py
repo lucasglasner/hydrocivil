@@ -35,12 +35,10 @@ def SUH_Clark(area: float, tc: float, tstep: float,
     """
     Clark (1945) instantaneous unit hydrograph model. 
 
-    The instantaneous unit hydrograph refers to the catchment response of a
-    homogeneous 1 mm storm distributed and applied over an instantaneous
-    duration. In this regard the Clark's model indicates that the basin
-    response can be computed from a time-area relationship, the concentration
-    time and a storage coefficient R. The model assumes that the basin behaves
-    like a linear reservoir following the equation:
+    The Clark's model indicates that the basin response can be computed from a
+    time-area relationship, the concentration time and a storage coefficient R.
+    The model assumes that the basin behaves like a linear reservoir following
+    the equation:
 
         dS/dt = I(t) - Q(t)
         S(t) = R * Q(t)
@@ -96,7 +94,7 @@ def SUH_Clark(area: float, tc: float, tstep: float,
             Defaults to {'kind':'quadratic'}.
 
     Returns:
-        _type_: _description_
+        uh, (qp, tp, tc, R) (tuple)
     """
     text = "SUH_Clark() missing 1 required positional argument: 'R' or 'X'"
     if R is None:
@@ -141,7 +139,7 @@ def SUH_Clark(area: float, tc: float, tstep: float,
     uh = uh*area
 
     # Ensure that the unit hydrograph acummulates a volume of 1mm
-    volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
+    volume = np.trapezoid(uh, uh.index*3600)/1e6/area*1e3
     uh = uh/volume
     params = (uh.max(), uh.idxmax(), tc, R)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tc', 'R'])
@@ -264,7 +262,7 @@ def SUH_SCS(area: float, tc: float, tstep: float, prf: float = 484,
     uh = uh.where(uh > 0).fillna(0)
 
     # Ensure that the unit hydrograph acummulates a volume of 1mm
-    volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
+    volume = np.trapezoid(uh, uh.index*3600)/1e6/area*1e3
     uh = uh/volume
     params = (qp, tp, tb, tstep, prf)
     params = pd.Series(
@@ -379,7 +377,7 @@ def SUH_Gray(area: float, mriverlen: float, meanslope: float,
     uh = uh.where(uh > 0).fillna(0)
 
     # Ensure that the unit hydrograph acummulates a volume of 1mm
-    volume = np.trapz(uh, uh.index*3600)/1e6/area*1e3
+    volume = np.trapezoid(uh, uh.index*3600)/1e6/area*1e3
     uh = uh/volume
     params = (uh.max(), tp, tstep, y, a, b)
     params = pd.Series(params, index=['qpeak', 'tpeak', 'tstep',
@@ -469,7 +467,7 @@ def SUH_Linsley(area: float, mriverlen: float, out2centroidlen: float,
     uh = uh.where(uh > 0).fillna(0)
 
     # Ensure that the unit hydrograph acummulates a volume of 1mm
-    volume = np.trapz(uh, uh.index*3600)/1e6  # mm
+    volume = np.trapezoid(uh, uh.index*3600)/1e6  # mm
     uh = uh/volume
     params = (qpR/volume*area/1e3, tpR, tbR,
               tstep, C_t, n_t, C_p, n_p, C_b, n_b)
@@ -690,7 +688,7 @@ class LumpedUnitHydrograph():
         uh_new = uh_new.sort_index()
 
         # Ensure that the unit hydrograph acummulates a volume of 1mm
-        volume = np.trapz(uh_new, uh_new.index*3600)
+        volume = np.trapezoid(uh_new, uh_new.index*3600)
         volume = volume/self.geoparams['area']/1e3  # mm
         uh_new = uh_new/volume
 
