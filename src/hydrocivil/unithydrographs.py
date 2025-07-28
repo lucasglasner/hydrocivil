@@ -503,8 +503,8 @@ class LumpedUnitHydrograph():
         self.geoparams = geoparams
         self.kwargs = {}
         self.timestep = None
-        self.UnitHydro = None
-        self.SUnitHydro = None
+        self.unithydro = None
+        self.scurve = None
         self.params = None
 
     def _Clark(self, timestep: float, tc_formula: str = 'SCS', **kwargs: Any
@@ -524,8 +524,9 @@ class LumpedUnitHydrograph():
                 respective table of parameters
         """
         area = self.geoparams['area']
-        if 'tc' in kwargs.keys():
-            uh, uh_params = SUH_Clark(tstep=timestep, area=area, **kwargs)
+        if 'tc' in self.geoparams.keys():
+            tc = self.geoparams['tc']
+            uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc)
         else:
             tc = concentration_time(method=tc_formula, **self.geoparams)/60
             uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc,
@@ -552,8 +553,9 @@ class LumpedUnitHydrograph():
                 respective table of parameters
         """
         area = self.geoparams['area']
-        if 'tc' in kwargs.keys():
-            uh, uh_params = SUH_SCS(tstep=timestep, area=area, **kwargs)
+        if 'tc' in self.geoparams.keys():
+            tc = self.geoparams['tc']
+            uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc)
         else:
             tc = concentration_time(method=tc_formula, **self.geoparams)/60
             uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc,
@@ -644,7 +646,7 @@ class LumpedUnitHydrograph():
         Returns:
             (pandas.Series): S-Unit Hydrograph. 
         """
-        uh = self.UnitHydro
+        uh = self.unithydro
         sums = [uh.shift(i) for i in range(len(uh)+1)]
         S_uh = pd.concat(sums, axis=1).sum(axis=1)
         return S_uh
@@ -676,12 +678,12 @@ class LumpedUnitHydrograph():
         Returns:
             self: Updated Class
         """
-        time, SCurve = self.UnitHydro.index, self.SUnitHydro
+        time, scurve = self.unithydro.index, self.scurve
         new_time = np.arange(time[0], time[-1]+duration, duration)
-        interp_func = interp1d(time, SCurve.values, fill_value='extrapolate',
+        interp_func = interp1d(time, scurve.values, fill_value='extrapolate',
                                **interp_kwargs)
-        SCurve_new = pd.Series(interp_func(new_time), index=new_time)
-        uh_new = (SCurve_new-SCurve_new.shift(1).fillna(0))
+        scurve_new = pd.Series(interp_func(new_time), index=new_time)
+        uh_new = (scurve_new-scurve_new.shift(1).fillna(0))
         uh_new = uh_new.where(uh_new > 0).dropna()
         uh_new.loc[uh_new.index[-1]+duration] = 0
         uh_new.loc[0] = 0
@@ -697,9 +699,9 @@ class LumpedUnitHydrograph():
 
         # Update
         self.timestep = duration
-        self.UnitHydro = uh_new
+        self.unithydro = uh_new
         self.params = params_new
-        self.SUnitHydro = SCurve_new
+        self.scurve = scurve_new
         return self
 
     def convolve(self, rainfall: pd.Series | pd.DataFrame, **kwargs: Any
@@ -723,10 +725,10 @@ class LumpedUnitHydrograph():
             text = 'Rain series and UH time resolution must match !!'
             raise RuntimeError(text)
         if len(rainfall.shape) > 1:
-            def func(col): return sg.convolve(col, self.UnitHydro)
+            def func(col): return sg.convolve(col, self.unithydro)
             hydrograph = rainfall.apply(func, **kwargs)
         else:
-            hydrograph = pd.Series(sg.convolve(rainfall, self.UnitHydro))
+            hydrograph = pd.Series(sg.convolve(rainfall, self.unithydro))
         hydrograph.index = hydrograph.index*self.timestep
         return hydrograph
 
@@ -763,8 +765,8 @@ class LumpedUnitHydrograph():
             raise ValueError(f'method="{method}" not valid!')
 
         uh = uh[(uh.cumsum()/uh.sum()) < 1-upper_tail_threshold]
-        self.UnitHydro, self.params = uh, uh_params
-        self.SUnitHydro = self.get_SHydrograph()
+        self.unithydro, self.params = uh, uh_params
+        self.scurve = self.get_SHydrograph()
         self.update_duration(self.timestep)
 
         return self
@@ -781,7 +783,7 @@ class LumpedUnitHydrograph():
         params = self.params.to_dict()
         text = [f'{key}: {val:.2f}' for key, val in params.items()]
         text = ' ; '.join(text)
-        fig = self.UnitHydro.plot(xlabel='(hr)', ylabel='m3 s-1 mm-1',
+        fig = self.unithydro.plot(xlabel='(hr)', ylabel='m3 s-1 mm-1',
                                   title=text, **kwargs)
         ax = plt.gca()
         return (fig, ax)
