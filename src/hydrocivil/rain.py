@@ -17,17 +17,17 @@ from typing import Any, Type
 from numpy.typing import ArrayLike
 from .abstractions import SCS_Abstractions, Horton_Abstractions
 from .abstractions import Philip_Abstractions, GreenAmpt_Abstractions
-from .global_vars import SHYETO_DATA
-from .misc import obj_to_xarray
+from .global_vars import SHYETO_DATA, DURCOEFS_PGAUGES
+from .misc import obj_to_xarray, series2func
 
 import scipy.stats as st
 
-# ----------------------- duration coefficient routines ---------------------- #
+# -------------------- Intensity-duration-frequency curves ------------------- #
 
 
 def grunsky_coef(storm_duration: int | float,
                  ref_duration: int | float = 24,
-                 expon: float = 0.5,) -> float:
+                 expon: float = 0.5) -> float:
     """
     This function computes the duration coefficient given by a Grunsky-like
     Formula. Those formulas state that the duration coefficient is a power
@@ -58,7 +58,7 @@ def grunsky_coef(storm_duration: int | float,
 
 
 def bell_coef(storm_duration: int | float, cd1: float = None,
-              ref_duration: int | float = 24) -> float:
+              ref_duration: int | float = 24, expon: float = 0.5) -> float:
     """
     This function computes the duration coefficient
     given by the Bell Formula.
@@ -73,66 +73,68 @@ def bell_coef(storm_duration: int | float, cd1: float = None,
             Defaults to None, which will use the Grunsky coefficient for 1 hr.
         ref_duration (array_like): Reference rain duration (hours).
             Defaults to 24 hr.
+        expon (float): Exponent of the Grunsky power law. Defaults to 0.5.
 
     Returns:
         CD (array_like): Duration coefficient in (dimensionless)
     """
     a = (0.54*((storm_duration*60)**0.25)-0.5)
     if cd1 is None:
-        b = grunsky_coef(1, ref_duration)
+        b = grunsky_coef(1, ref_duration, expon=expon)
     else:
         b = cd1
     CD = a*b
     return CD
 
 
-def duration_coef(storm_duration: int | float,
-                  ref_duration: int | float = 24,
-                  bell_threshold: int | float = 1,
-                  duration_threshold: int | float = 10/60) -> float:
+def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
+                  ref_duration: int | float = 24, expon: float = 0.5) -> float:
     """
-    The duration coefficient is a parameter used to transform a known duration
-    precipitation to a new duration rain. For example it can be used to
-    estimate from daily rainfall (24 hours) the expected accumulation in
-    6 hours. This function uses a merge of Grunsky and Bell Formulations of the
-    duration coefficient. The idea is to use Bell's Formula only when the input
-    duration is less than a user specified threshold. In addition, when the
-    duration is less than the "duration_threshold" the duration is set to the
-    "duration_threshold".
+    Compute duration coefficient to convert precipitation from a reference
+    duration (typically 24 hr) to a target duration. Used to estimate
+    rainfall for different durations based on empirical formulas.
 
-    References:
-        Bell, F.C. (1969) Generalized Rainfall-Duration-Frequency
-        Relationships. Journal of Hydraulic Division, ASCE, 95, 311-327.
-
-        Grunsky (???)
+    - For durations >= 1 hr, Grunsky's formula is used (power law).
+    - For durations < 1 hr, Bell's formula is used.
+    - If a reference rain gauge is specified (other than 'Grunsky'),
+      coefficients are interpolated from predefined tables, with Bell's
+      formula for durations < 1 hr.
 
     Args:
-        storm_duration (array_like): Storm duration in hours
-        bell_threshold (float, optional): Duration threshold for changing
-            between Grunsky and Bell formulas. Defaults to 1 (hour).
-        duration_threshold (float, optional): Minimum storm duration.
-            Defaults to 10 minutes (1/6 hours).
+        storm_duration (int, float, or array-like): Target duration(s) [hr].
+        ref_pgauge (str, optional): Reference gauge name or 'Grunsky'.
+        ref_duration (int or float, optional): Reference duration [hr].
+            Default is 24.
+        expon (float): Exponent of the Grunsky power law. Defaults to 0.5.
+
 
     Returns:
-        coef (array_like): Duration coefficients (dimensionless)
+        np.ndarray: Duration coefficient(s) (dimensionless).
     """
     if np.isscalar(storm_duration):
         storm_duration = np.array([storm_duration])
+    else:
+        storm_duration = np.asarray(storm_duration)
     coefs = np.full(storm_duration.shape, np.nan)
-    duration_mask = storm_duration < duration_threshold
-    bell_mask = storm_duration < bell_threshold
-    if duration_mask.sum() != 0:
-        threshold = f'{duration_threshold*60:.1f}'
-        text = f'A storm duration is less than {threshold} min threshold,'
-        text = text+f' setting to {threshold} min.'
-        warnings.warn(text)
-        storm_duration[duration_mask] = duration_threshold
-    coefs[bell_mask] = bell_coef(storm_duration[bell_mask],
-                                 ref_duration=ref_duration)
-    coefs[~bell_mask] = grunsky_coef(storm_duration[~bell_mask],
+    bell_mask = storm_duration < 1
+    if ref_pgauge == 'Grunsky':
+        coefs = grunsky_coef(storm_duration, ref_duration=ref_duration,
+                             expon=expon)
+        coefs[bell_mask] = bell_coef(storm_duration[bell_mask],
                                      ref_duration=ref_duration)
+    else:
+        if ref_pgauge not in DURCOEFS_PGAUGES.columns:
+            raise ValueError(f"Reference rain gauge '{ref_pgauge}' not found.")
+        if ref_duration != 24:
+            raise ValueError(
+                "Reference duration must be 24 hr for tabulated "
+                "duration coefficients.")
+        func = series2func(DURCOEFS_PGAUGES[ref_pgauge])
+        CD1 = DURCOEFS_PGAUGES[ref_pgauge].loc[1]
+        coefs = func(storm_duration)
+        coefs[bell_mask] = bell_coef(storm_duration[bell_mask], cd1=CD1)
+    coefs[coefs < 0] = 0
     return coefs
-
 
 # ------------------------------- Design Storms ------------------------------ #
 

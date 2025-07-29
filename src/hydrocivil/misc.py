@@ -18,6 +18,7 @@ import xarray as xr
 from osgeo import gdal, gdal_array
 from rasterio.features import shapes
 from shapely.geometry import shape, Point
+from scipy.interpolate import interp1d
 
 from typing import Tuple, Any
 from numpy.typing import ArrayLike
@@ -389,6 +390,23 @@ def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
         raise RuntimeError(text)
 
 # ----------------------------------- other ---------------------------------- #
+
+
+def series2func(series: pd.Series, **kwargs) -> interp1d:
+    """
+    Converts a pandas Series into an interpolating function.
+
+    Args:
+        series (pd.Series): Series where index represents the independent
+            variable and values the dependent variable.
+        **kwargs: Additional arguments for scipy.interpolate.interp1d.
+
+    Returns:
+        interp1d: A function that interpolates or extrapolates the
+            given series.
+    """
+    return interp1d(series.index, series.values, fill_value='extrapolate',
+                    **kwargs)
 
 
 def get_psep() -> str:
