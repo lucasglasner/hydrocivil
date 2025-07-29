@@ -47,7 +47,7 @@ def grunsky_coef(storm_duration: int | float,
     Args:
         storm_duration (array_like): storm duration in (hours)
         expon (float): Exponent of the power law. Defaults to 0.5 (Grunsky).
-        ref_duration (array_like): Reference duration (hours).
+        ref_duration (array_like): Reference rain duration (hours).
             Defaults to 24 hr
 
     Returns:
@@ -57,7 +57,7 @@ def grunsky_coef(storm_duration: int | float,
     return CD
 
 
-def bell_coef(storm_duration: int | float,
+def bell_coef(storm_duration: int | float, cd1: float = None,
               ref_duration: int | float = 24) -> float:
     """
     This function computes the duration coefficient
@@ -69,12 +69,19 @@ def bell_coef(storm_duration: int | float,
 
     Args:
         storm_duration (array_like): duration in (hours)
+        cd1 (float, optional): Duration coefficient for 1 hour duration.
+            Defaults to None, which will use the Grunsky coefficient for 1 hr.
+        ref_duration (array_like): Reference rain duration (hours).
+            Defaults to 24 hr.
 
     Returns:
         CD (array_like): Duration coefficient in (dimensionless)
     """
     a = (0.54*((storm_duration*60)**0.25)-0.5)
-    b = grunsky_coef(1, ref_duration)
+    if cd1 is None:
+        b = grunsky_coef(1, ref_duration)
+    else:
+        b = cd1
     CD = a*b
     return CD
 
@@ -98,7 +105,6 @@ def duration_coef(storm_duration: int | float,
         Relationships. Journal of Hydraulic Division, ASCE, 95, 311-327.
 
         Grunsky (???)
-
 
     Args:
         storm_duration (array_like): Storm duration in hours
