@@ -88,7 +88,8 @@ def bell_coef(storm_duration: int | float, cd1: float = None,
 
 
 def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
-                  ref_duration: int | float = 24, expon: float = 0.5) -> float:
+                  ref_duration: int | float = 24, expon: float = 0.5,
+                  **kwargs) -> float:
     """
     Compute duration coefficient to convert precipitation from a reference
     duration (typically 24 hr) to a target duration. Used to estimate
@@ -129,7 +130,7 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
             raise ValueError(
                 "Reference duration must be 24 hr for tabulated "
                 "duration coefficients.")
-        func = series2func(DURCOEFS_PGAUGES[ref_pgauge])
+        func = series2func(DURCOEFS_PGAUGES[ref_pgauge], **kwargs)
         CD1 = DURCOEFS_PGAUGES[ref_pgauge].loc[1]
         coefs = func(storm_duration)
         coefs[bell_mask] = bell_coef(storm_duration[bell_mask], cd1=CD1)

@@ -243,6 +243,9 @@ class HydroLULC:
             # lulc[var] = lulc[var].where(lulc[var] != -9999)
 
         if 'cn' in lulc.variables:
+            lulc['cn1'] = cn_correction(lulc['cn'], amc='I')
+            lulc['cn2'] = cn_correction(lulc['cn'], amc='II')
+            lulc['cn3'] = cn_correction(lulc['cn'], amc='III')
             if 'amc' in kwargs.keys():
                 lulc['cn'] = cn_correction(lulc['cn'], amc=kwargs['amc'])
         self.lulc = lulc
