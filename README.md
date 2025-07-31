@@ -12,7 +12,7 @@ Before installing, check your environment for the following packages:
 * xarray, rasterio, rioxarray
 * shapely, geopandas
 * networkx
-* whitebox_workflows (optional)
+* whitebox_workflows
 
 ## Installation
 

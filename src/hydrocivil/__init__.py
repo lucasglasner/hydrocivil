@@ -7,7 +7,7 @@
  Modified by: Lucas Glasner, 
  Modified time: 2024-10-DD 18:49:12
  Dependencies: numpy, pandas, scipy, matplotlib, rioxarray, rasterio, xarray,
- shapely, geopandas, networkx, whitebox_workflows (optional).
+ shapely, geopandas, networkx, whitebox_workflows.
 '''
 
 
@@ -19,30 +19,26 @@ from . import (
     unithydrographs,
     rain,
     watersheds,
-    reservoirs
+    reservoirs,
+    wb_tools
 )
 
+# Utilities
+from . import (
+    misc,
+    web,
+)
+
+
 # Direct class imports
-from .global_vars import _has_whitebox
 from .watersheds import RiverBasin, HydroDEM
 from .rain import RainStorm
 from .reservoirs import Reservoir
 from .channels import RiverReach
 from .unithydrographs import LumpedUnitHydrograph
+from .wb_tools import wbe
 
-# Utilities
-from . import (
-    misc,
-    web
-)
-
-# GIS
-if _has_whitebox:
-    from . import wb_tools
-    from .wb_tools import wbe
-
-
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __author__ = "Lucas Glasner"
 __email__ = "lgvivanco96@gmail.com"
 __license__ = "MIT"
@@ -55,4 +51,5 @@ __all__: List[str] = [
     'RainStorm',
     'Reservoir',
     'RiverReach',
+    'wbe'
 ]

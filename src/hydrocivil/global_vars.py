@@ -11,13 +11,6 @@ import os
 import pandas as pd
 import geopandas as gpd
 
-try:
-    import whitebox_workflows as wbw
-except Exception:
-    _has_whitebox = False
-else:
-    _has_whitebox = True
-
 # ----------------------------------- PATHS ---------------------------------- #
 ROOT_FOLDER = os.path.dirname(os.path.abspath(__file__))
 DATA_FOLDER = os.path.join(ROOT_FOLDER, 'resources')

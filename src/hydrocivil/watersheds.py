@@ -28,10 +28,9 @@ from .misc import sharegrids, raster_distribution, raster_cross_section
 from .unithydrographs import LumpedUnitHydrograph as SUH
 from .geomorphology import basin_outlet, process_gdaldem
 from .geomorphology import terrain_exposure, get_main_river
-from .global_vars import GDAL_EXCEPTIONS, _has_whitebox
-from .abstractions import cn_correction
-from .abstractions import SCS_EffectiveRainfall, SCS_EquivalentCurveNumber
-
+from .global_vars import GDAL_EXCEPTIONS
+from .abstractions import (cn_correction, SCS_EffectiveRainfall,
+                           SCS_EquivalentCurveNumber)
 
 if GDAL_EXCEPTIONS:
     gdal.UseExceptions()
@@ -113,10 +112,10 @@ class HydroDEM:
                       flow_method: str = 'd8',
                       **kwargs):
         """
-        Processes the flow data using the WhiteboxTools package if available.
-        This method preprocesses the digital elevation model (DEM) to generate
-        hydrological flow-related rasters. If the required package is not
-        installed, an ImportError is raised.
+        Processes the flow data using the WhiteboxTools package. This method
+        preprocesses the digital elevation model (DEM) to generate hydrological
+        flow-related rasters. 
+
         Args:
             carve_dist (float, optional): Maximum distance to carve when
                 breaching. Defaults to 0.
@@ -126,31 +125,25 @@ class HydroDEM:
                 'Mdinf', 'Quinn1995', 'Qin2007'.
             **kwargs: Additional keyword arguments to be passed to the
                       `wbDEMpreprocess` function.
-            ImportError: If the 'whitebox_workflows' package is not installed.
         Notes:
             - The `wbDEMpreprocess` function is used to preprocess the DEM and
               generate flow-related rasters.
             - The resulting rasters are merged with the existing DEM data.
-            - If the 'whitebox_workflows' package is not available, the method
-              will raise an ImportError with an appropriate message.
+
         """
-        if _has_whitebox:
-            from .wb_tools import wbDEMpreprocess
-            rasters, rivers = wbDEMpreprocess(self.dem.elevation,
-                                              return_streams=return_streams,
-                                              raster2xarray=True,
-                                              carve_dist=carve_dist,
-                                              flow_method=flow_method,
-                                              vector2geopandas=vector2geopandas,
-                                              **kwargs)
-            ivars = ['elevation', 'slope', 'aspect', 'hillshade']
-            self.dem = xr.merge([self.dem[ivars]]+rasters)
-            self.rivers = rivers
-            if isinstance(self.rivers, gpd.GeoDataFrame):
-                self.rivers.crs = f'epsg:{self.dem.rio.crs.to_epsg()}'
-        else:
-            text = "Flow processing requieres 'whitebox_workflows' package"
-            raise ImportError(text)
+        from .wb_tools import wbDEMpreprocess
+        rasters, rivers = wbDEMpreprocess(self.dem.elevation,
+                                          return_streams=return_streams,
+                                          raster2xarray=True,
+                                          carve_dist=carve_dist,
+                                          flow_method=flow_method,
+                                          vector2geopandas=vector2geopandas,
+                                          **kwargs)
+        ivars = ['elevation', 'slope', 'aspect', 'hillshade']
+        self.dem = xr.merge([self.dem[ivars]]+rasters)
+        self.rivers = rivers
+        if isinstance(self.rivers, gpd.GeoDataFrame):
+            self.rivers.crs = f'epsg:{self.dem.rio.crs.to_epsg()}'
 
     def get_exposure_distribution(self, **kwargs) -> pd.Series:
         """
@@ -555,7 +548,7 @@ class RiverBasin(HydroDEM, HydroLULC):
             self: updated class
         """
         # Flow derived params
-        if preprocess_rivers and _has_whitebox:
+        if preprocess_rivers:
             super()._process_flow(return_streams=True,
                                   vector2geopandas=True,
                                   carve_dist=carve_dist,
