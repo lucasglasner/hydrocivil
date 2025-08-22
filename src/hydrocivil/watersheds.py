@@ -131,7 +131,7 @@ class HydroDEM:
             - The resulting rasters are merged with the existing DEM data.
 
         """
-        from .wb_tools import wbDEMpreprocess
+        from .geomorphology import wbDEMpreprocess
         rasters, rivers = wbDEMpreprocess(self.dem.elevation,
                                           return_streams=return_streams,
                                           raster2xarray=True,

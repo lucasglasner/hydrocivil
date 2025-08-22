@@ -568,7 +568,7 @@ def tc_spain(mriverlen: int | float, meanslope: int | float,
     Returns:
         Tc (float): Concentration time (minutes)
     """
-    Tc = 18*(mriverlen**0.76)/((meanslope*100)**0.19)
+    Tc = 18*(mriverlen**0.76)/((meanslope)**0.19)
     return Tc
 
 

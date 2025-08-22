@@ -279,5 +279,22 @@ def xarray2wbRaster(da: xr.DataArray) -> wbw.Raster:
         fpath = os.path.join(tmpdirname, f'{os.path.basename(tmpdirname)}.tif')
         da.attrs.pop('_FillValue', None)
         da.rio.to_raster(fpath)
-        wda = wbe.read_raster(fpath).deep_copy()
+        wda = wbe.read_raster(fpath)
     return wda
+
+
+def geopandas2wbVector(gdf: gpd.GeoDataFrame) -> wbw.Vector:
+    """
+    Convert a GeoDataFrame to a WhiteboxTools Vector.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Input GeoDataFrame containing vector data.
+
+    Returns:
+        wbw.Vector: A new vector created from the GeoDataFrame.
+    """
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        fpath = os.path.join(tmpdirname, f'{os.path.basename(tmpdirname)}.shp')
+        gdf.to_file(fpath)
+        wv = wbe.read_vector(fpath)
+    return wv
