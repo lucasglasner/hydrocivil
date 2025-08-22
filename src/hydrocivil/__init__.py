@@ -38,7 +38,7 @@ from .channels import RiverReach
 from .unithydrographs import LumpedUnitHydrograph
 from .wb_tools import wbe
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 __author__ = "Lucas Glasner"
 __email__ = "lgvivanco96@gmail.com"
 __license__ = "MIT"
