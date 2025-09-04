@@ -17,6 +17,7 @@ import xarray as xr
 
 from osgeo import gdal, gdal_array
 from rasterio.features import shapes
+from rasterio.features import rasterize as riorasterize
 from shapely.geometry import shape, Point
 from scipy.interpolate import interp1d
 
@@ -79,6 +80,31 @@ def raster_cross_section(raster: xr.DataArray, line: gpd.GeoSeries,
     data.coords['dist'] = ('points', dist)
     data = data.swap_dims({'points': 'dist'})
     return data
+
+
+def rasterize(vector: gpd.GeoDataFrame, raster: xr.DataArray) -> xr.DataArray:
+    """
+    Rasterize a vector layer.
+
+    Args:
+        vector (GeoDataFrame): The vector layer to rasterize.
+        raster (xarray.DataArray): The reference raster to define the output
+            shape and transform.
+
+    Returns:
+        (xarray.DataArray): Rasterized vector layer as a boolean xarray.
+    """
+    mask_array = riorasterize(
+        [(geom, 1) for geom in vector.geometry],
+        out_shape=raster.shape,
+        transform=raster.rio.transform(),
+        fill=0,
+        dtype='uint8'
+    )
+    mask_xarray = xr.DataArray(mask_array,
+                               coords=raster.coords,
+                               dims=raster.dims, name='mask')
+    return mask_xarray
 
 
 def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:

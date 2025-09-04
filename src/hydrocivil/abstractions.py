@@ -11,6 +11,63 @@ from scipy.optimize import root_scalar
 import numpy as np
 from numpy.typing import ArrayLike
 
+
+# --------------------------- Vadose zone equations -------------------------- #
+def effective_saturation(theta: float, theta_r: float, theta_s: float) -> float:
+    """
+    Compute effective saturation Se.
+
+    Args:
+        theta (float|array): volumetric soil moisture (cm3/cm3)
+        theta_r (float): residual volumetric soil moisture (cm3/cm3)
+        theta_s (float): saturated volumetric soil moisture (cm3/cm3)
+
+    Returns:
+        Se (float|array): effective saturation (-)
+    """
+    Se = (theta - theta_r) / (theta_s - theta_r)
+    Se = np.clip(Se, 0, 1)
+    return Se
+
+
+def water_retention(psi: float, theta_r: float, theta_s: float, alpha: float,
+                    n: float) -> float:
+    """
+    Compute soil moisture using van Genuchten's water retention equation.
+
+    Args:
+        psi (float|array): soil matric potential (cm)
+        theta_r (float): residual volumetric soil moisture (cm3/cm3)
+        theta_s (float): saturated volumetric soil moisture (cm3/cm3)
+        alpha (float): inverse of the air entry suction (1/cm)
+        n (float): pore-size distribution index (-)
+
+    Returns:
+        theta (float|array): volumetric soil moisture (cm3/cm3)
+    """
+    m = 1 - 1/n
+    Se = (1 + (alpha * np.abs(psi))**n)**(-m)
+    theta = theta_r + Se * (theta_s - theta_r)
+    return theta
+
+
+def mualem_conductivity(Se: float, Ks: float, n: float,
+                        tortuosity: float = 0.5) -> float:
+    """
+    Compute unsaturated hydraulic conductivity using Mualem's model.
+
+    Args:
+        Se (float|array): effective saturation (-)
+        Ks (float): saturated hydraulic conductivity (cm/h)
+        n (float): pore-size distribution index (-)
+
+    Returns:
+        K (float|array): unsaturated hydraulic conductivity (cm/h)
+    """
+    m = 1 - 1/n
+    K = Ks * Se**tortuosity * (1 - (1 - Se**(1/m))**m)**2
+    return K
+
 # ----------------------------- Horton equations ----------------------------- #
 
 
@@ -87,7 +144,7 @@ def Philip_Abstractions(pr: float, duration: float, S: float, K: float
     Args:
         pr (float|array): precipitation rate (mm/h)
         duration (float): Time duration of rainfall event (h)
-        S (float): Adsorption coefficient (mm / h ^ 0.5)
+        S (float): Sorptivity coefficient (mm / h ^ 0.5)
         K (float): Saturated soil hydraulic conductivity (mm/h)
 
     Returns:
@@ -128,13 +185,13 @@ def Philip_EffectiveRainfall(pr: float, duration: float, S: float, K: float
 
 @np.vectorize
 def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
-                           theta_s: float, psi: float, h0: float = 10
+                           theta: float, psi: float, h0: float = 10
                            ) -> float:
     """
     Compute infiltration rate using Green & Ampt's equation. The equation 
     to solve is the following implicit equation:
 
-    F (t) = K*t + (p-theta_s)*(h0+psi)*ln (1+F/(p-theta_s)/(h0 + psi))
+    F (t) = K*t + (p-theta)*(h0+psi)*ln (1+F/(p-theta)/(h0 + psi))
 
     which is solved using the Newton-Raphson method.
 
@@ -143,7 +200,7 @@ def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
         duration (float): Time duration of rainfall event (h)
         K (float): Saturated soil hydraulic conductivity (mm/h)
         p (float): Soil porosity (-)
-        theta_s (float): Soil fractional moisture (-)
+        theta (float): Soil fractional moisture (-)
         psi (float): Soil suction (mm). Highly dependant of soil moisture.
         h0 (float): water depth above the soil column (mm). Default to 10 mm. 
 
@@ -151,12 +208,12 @@ def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
     Returns:
         f (float): Infiltration rate (mm/h)
     """
-    if theta_s > p:
-        text = f'theta_s: {theta_s} > porosity: {p}. '
+    if theta > p:
+        text = f'theta: {theta} > porosity: {p}. '
         text += 'Soil cant have more moisture than the aviable void space!'
         raise ValueError(text)
 
-    c1 = (p - theta_s)
+    c1 = (p - theta)
     c2 = (h0 + psi)
 
     def _rootfunc(F):
@@ -173,7 +230,7 @@ def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
         return c1*c2/(c1*c2 + F) - 1
 
     # Solve with Green & Ampt equation using Newton-Raphson method.
-    if duration == 0 or (p-theta_s) == 0:
+    if duration == 0 or (p-theta) == 0:
         f = K
     else:
         F = root_scalar(_rootfunc, x0=K*duration, fprime=_rootfunc_diff,

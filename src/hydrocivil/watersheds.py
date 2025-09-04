@@ -460,20 +460,16 @@ class RiverBasin(HydroDEM, HydroLULC):
             for i, v in zip(index, data):
                 self.geoparams.loc[i, :] = v
 
-    def _get_basinoutlet(self, n: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_basinoutlet(self) -> Tuple[float, float]:
         """
         This function computes the basin outlet point defined as the
         point of minimum elevation along the basin boundary.
-
-        Args:
-            n (int, optional): Number of DEM pixels to consider for the
-                elevation boundary. Defaults to 3.
 
         Returns:
             outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
                 coordinates.
         """
-        outlet_y, outlet_x = basin_outlet(self.basin, self.dem.elevation, n=n)
+        outlet_y, outlet_x = basin_outlet(self.basin, self.dem.elevation)
         self.basin['outlet_x'] = outlet_x
         self.basin['outlet_y'] = outlet_y
         return (outlet_y, outlet_x)

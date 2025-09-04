@@ -17,7 +17,7 @@ from typing import Any, Tuple
 from osgeo import gdal, gdal_array
 import networkx as nx
 
-from .misc import gdal2xarray, xarray2gdal
+from .misc import gdal2xarray, xarray2gdal, rasterize
 from .abstractions import SCS_MaximumRetention
 from .wb_tools import (wbw, wbe, wbRaster2xarray, wbVector2geopandas,
                        xarray2wbRaster)
@@ -365,8 +365,7 @@ def get_main_river(river_network: gpd.GeoSeries | gpd.GeoDataFrame
 
 
 def basin_outlet(basin: gpd.GeoSeries | gpd.GeoDataFrame,
-                 dem: xr.DataArray, n: int = 3
-                 ) -> Tuple[np.ndarray, np.ndarray]:
+                 dem: xr.DataArray) -> Tuple[float, float]:
     """
     This function computes the basin outlet point defined as the
     point of minimum elevation along the basin boundary.
@@ -374,17 +373,14 @@ def basin_outlet(basin: gpd.GeoSeries | gpd.GeoDataFrame,
     Args:
         basin (geopandas.GeoDataFrame): basin polygon
         dem (xarray.DataArray): Digital elevation model
-        n (int, optional): Number of DEM pixels to consider for the
-            elevation boundary. Defaults to 3.
 
     Returns:
         outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
             coordinates.
     """
-    dx = abs((max(dem.y.diff('y')[0], dem.x.diff('x')[0])).item())
     basin_boundary = basin.boundary
-    dem_boundary = dem.rio.clip(basin_boundary.buffer(dx*n))
-    dem_boundary = dem_boundary.where(dem_boundary != -9999)
+    mask = rasterize(basin_boundary, dem)
+    dem_boundary = dem.where(mask)
     outlet_point = dem_boundary.isel(**dem_boundary.argmin(['y', 'x']))
     outlet_y, outlet_x = outlet_point.y.item(), outlet_point.x.item()
     return (outlet_y, outlet_x)
