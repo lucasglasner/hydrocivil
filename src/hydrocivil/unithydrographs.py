@@ -482,11 +482,10 @@ def SUH_Linsley(area: float, mriverlen: float, out2centroidlen: float,
 
 class LumpedUnitHydrograph():
     """
-    Synthetic Unit Hydrograph class for constructing unit hydrographs of
-    river basins based on geomorphometric and land use properties. Supports
-    Clark, SCS, Linsley, and Gray methods. For Gray and Linsley, optional
-    pre-calibrated Chilean parameters are available, following the national
-    flood manual.
+    Class for building unit hydrographs of river basins based on
+    geomorphometric and land use properties. Supports Clark, SCS, Linsley,
+    and Gray methods. For Gray and Linsley, optional pre-calibrated Chilean
+    parameters are available, following the national flood manual.
     """
 
     def __init__(self, method: str, geoparams: dict | pd.Series

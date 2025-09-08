@@ -243,7 +243,7 @@ def GreenAmpt_Abstractions(pr: float, duration: float, K: float, p: float,
 
 @np.vectorize
 def GreenAmpt_EffectiveRainfall(pr: float, duration: float, K: float, p: float,
-                                theta_s: float, psi: float, h0: float = 10
+                                theta: float, psi: float, h0: float = 10
                                 ) -> float:
     """
     Effective precipitation/runoff computation using GreenAmpt's model for 
@@ -254,14 +254,14 @@ def GreenAmpt_EffectiveRainfall(pr: float, duration: float, K: float, p: float,
         duration (float): Time duration of rainfall event (h)
         K (float): Saturated soil hydraulic conductivity (mm/h)
         p (float): Soil porosity (-)
-        theta_s (float): Soil fractional moisture (-)
+        theta (float): Soil fractional moisture (-)
         psi (float): Soil suction (mm). Highly dependant of soil moisture.
         h0 (float): water depth above the soil column (mm). Default to 10 mm. 
 
     Returns:
         pr_eff (float|array): Effective precipitation rate (mm/h)
     """
-    F = GreenAmpt_Abstractions(pr, duration, K, p, theta_s, psi, h0)
+    F = GreenAmpt_Abstractions(pr, duration, K, p, theta, psi, h0)
     pr_eff = pr - F
     return pr_eff
 

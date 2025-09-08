@@ -540,8 +540,6 @@ class RiverBasin(HydroDEM, HydroLULC):
                 package. Defaults to False.
             **kwargs: Additional arguments for the river network preprocessing
                 function.
-        Returns:
-            self: updated class
         """
         # Flow derived params
         if preprocess_rivers:
@@ -610,8 +608,6 @@ class RiverBasin(HydroDEM, HydroLULC):
                 cover preprocessing routine. Defaults to {}.
             river_network_kwargs (dict, optional): Additional arguments for the
                 main river finding routine. Defaults to {}.
-        Returns:
-            pd.DataFrame: Table with basin parameters.
         """
         if self.geoparams.shape != (0, 1):
             self.geoparams = pd.DataFrame([], columns=[self.fid], dtype=object)
