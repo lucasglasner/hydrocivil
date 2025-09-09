@@ -33,6 +33,37 @@ else:
 # ------------------------------------ gis ----------------------------------- #
 
 
+def minradius_from_centroid(polygon: gpd.GeoDataFrame):
+    """
+    Return minimum radius (same units as input coords) of a circle centered at
+    the polygon centroid that encloses the polygon. Only works for polygons on a
+    projected coordinate system (i.e UTM).
+
+    Args:
+      polygon (GeoDataFrame): Polygon geometry
+        Must be a single polygon (dissolved if multiple)
+
+    Returns:
+      radius (float): Maximum distance from centroid to polygon vertices
+    """
+    if polygon.crs.is_geographic:
+        raise ValueError("CRS is geographic, use geodesic version")
+
+    polygon = polygon.dissolve()
+    centroid = polygon.centroid
+
+    # collect coordinates from exterior and interiors (holes)
+    coords = list(polygon.boundary.iloc[0].coords)
+
+    xs = np.array([c[0] for c in coords])
+    ys = np.array([c[1] for c in coords])
+
+    dx = xs - centroid.x.item()
+    dy = ys - centroid.y.item()
+    radius = float(np.sqrt(dx*dx + dy*dy).max())
+    return radius, centroid
+
+
 def raster_cross_section(raster: xr.DataArray, line: gpd.GeoSeries,
                          **kwargs: Any) -> Tuple[pd.Series, gpd.GeoSeries]:
     """
@@ -104,7 +135,7 @@ def rasterize(vector: gpd.GeoDataFrame, raster: xr.DataArray) -> xr.DataArray:
     mask_xarray = xr.DataArray(mask_array,
                                coords=raster.coords,
                                dims=raster.dims, name='mask')
-    return mask_xarray
+    return mask_xarray.astype(bool)
 
 
 def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:

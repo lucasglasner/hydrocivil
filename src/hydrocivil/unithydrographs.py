@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 from math import gamma
 from typing import Any, Tuple, Type
 from scipy.interpolate import interp1d
-from scipy.special import gamma
 from shapely.geometry import Point
 
 from .geomorphology import concentration_time
