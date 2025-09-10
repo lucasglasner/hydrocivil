@@ -15,6 +15,7 @@ import warnings
 
 from typing import Any, Tuple
 from osgeo import gdal, gdal_array
+from shapely.geometry import Point
 import networkx as nx
 
 from .misc import gdal2xarray, xarray2gdal, rasterize
@@ -364,26 +365,26 @@ def get_main_river(river_network: gpd.GeoSeries | gpd.GeoDataFrame
     return main_river
 
 
-def basin_outlet(basin: gpd.GeoSeries | gpd.GeoDataFrame,
-                 dem: xr.DataArray) -> Tuple[float, float]:
+def basin_outlet(basin, dem):
     """
     This function computes the basin outlet point defined as the
     point of minimum elevation along the basin boundary.
 
     Args:
-        basin (geopandas.GeoDataFrame): basin polygon
-        dem (xarray.DataArray): Digital elevation model
+      basin (geopandas.GeoDataFrame): basin polygon
+      dem (xarray.DataArray): Digital elevation model
 
     Returns:
-        outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
-            coordinates.
+      outlet_point (shapely.geometry.Point): Snapped outlet point on boundary.
     """
     basin_boundary = basin.boundary
     mask = rasterize(basin_boundary, dem)
     dem_boundary = dem.where(mask)
     outlet_point = dem_boundary.isel(**dem_boundary.argmin(['y', 'x']))
-    outlet_y, outlet_x = outlet_point.y.item(), outlet_point.x.item()
-    return (outlet_y, outlet_x)
+    x, y, z = outlet_point.x.item(), outlet_point.y.item(), outlet_point.item()
+    distance = basin_boundary.project(Point(x, y, z))
+    outlet_point = basin_boundary.interpolate(distance).iloc[0]
+    return outlet_point
 
 
 def terrain_exposure(aspect: xr.DataArray,

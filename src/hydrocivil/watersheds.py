@@ -16,7 +16,6 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 import xarray as xr
-import matplotlib
 import matplotlib.pyplot as plt
 
 from typing import Any, Type, Tuple
@@ -31,6 +30,7 @@ from .geomorphology import terrain_exposure, get_main_river
 from .global_vars import GDAL_EXCEPTIONS
 from .abstractions import (cn_correction, SCS_EffectiveRainfall,
                            SCS_EquivalentCurveNumber)
+from .graphical import add_colorbar, centergraph2polygon
 
 if GDAL_EXCEPTIONS:
     gdal.UseExceptions()
@@ -477,10 +477,10 @@ class RiverBasin(HydroDEM, HydroLULC):
             outlet_y, outlet_x (tuple): Tuple with defined outlet y and x
                 coordinates.
         """
-        outlet_y, outlet_x = basin_outlet(self.basin, self.dem.elevation)
-        self.basin['outlet_x'] = outlet_x
-        self.basin['outlet_y'] = outlet_y
-        return (outlet_y, outlet_x)
+        outlet = basin_outlet(self.basin, self.dem.elevation)
+        self.basin['outlet_x'] = outlet.x
+        self.basin['outlet_y'] = outlet.y
+        return (outlet.y, outlet.x)
 
     def _process_geography(self) -> pd.DataFrame:
         """
@@ -754,149 +754,62 @@ class RiverBasin(HydroDEM, HydroLULC):
         self.unithydro = uh
         return self
 
-    def plot(self):
-        fig, ax = plt.subplots(figsize=(8, 6))
+    def plot(self, show_rivers=False, show_mriver=True,
+             figsize=(8, 8), cbar_kwargs={'label': 'Elevation (m)'},
+             dem_kwargs={}, mask_kwargs={'hatches': ['XXX']}):
+        """
+        Plot a map of the basin showing the DEM, basin boundary, outlet,
+        main river, river network, and optionally a mask (e.g. snow area).
+
+        Args:
+            show_rivers (bool, optional): If True, plot all river segments.
+                Defaults to False.
+            show_mriver (bool, optional): If True, plot the main river.
+                Defaults to True.
+            figsize (tuple, optional): Figure size. Defaults to (8, 8).
+            cbar_kwargs (dict, optional): Colorbar keyword arguments.
+                Defaults to {'label':'Elevation (m)'}.
+            dem_kwargs (dict, optional): Additional kwargs for DEM plotting.
+                Defaults to {}.
+            mask_kwargs (dict, optional): Additional kwargs for mask plotting.
+                Defaults to {'hatches':['XXX']}.
+
+        Returns:
+            tuple: (fig, ax, cbar) - Matplotlib figure, axis, and colorbar.
+        """
+        fig, ax = plt.subplots(figsize=figsize)
         self.basin.boundary.plot(ax=ax, edgecolor='k', zorder=2)
         ax.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
                    label='Outlet', zorder=3, ec='k', color='tab:red')
-        self.dem['elevation'].plot.imshow(ax=ax, zorder=0,
-                                          cbar_kwargs={'shrink': 0.8,
-                                                       'orientation': 'horizontal'})
+        m = self.dem['elevation'].plot.imshow(ax=ax, zorder=0,
+                                              cmap='gist_earth',
+                                              add_colorbar=False, **dem_kwargs)
+        cbar = add_colorbar(m, fig, ax, **cbar_kwargs)
+        self.dem['hillshade'].plot.imshow(ax=ax, zorder=1, cmap='gray',
+                                          alpha=0.2, add_colorbar=False)
+        self.dem['elevation'].plot.contour(ax=ax, zorder=1, colors='k',
+                                           linewidths=0.5, alpha=0.5,
+                                           levels=cbar.get_ticks())
+        if self.totalcells != self.mask_raster.sum().item():
+            mask = self.mask_raster
+            nanmask = self.dem.elevation.isnull()
+            mask.where(~nanmask).where(~mask).plot.contourf(
+                ax=ax, zorder=1, colors=None, alpha=0, add_colorbar=False,
+                **mask_kwargs)
+            ax.plot([], [], label='Snowy Area', color='k')
 
-        if len(self.rivers) > 0:
-            self.rivers.plot(ax=ax, label='Rivers', zorder=2,
-                             color='tab:blue', alpha=0.7)
-
-        if len(self.main_river) > 0:
+        if len(self.main_river) > 0 and show_mriver:
             self.main_river.plot(ax=ax, label='Main River', zorder=2,
-                                 color='tab:blue')
+                                 color='tab:red')
 
-    # def plot(self,
-    #          demvar='elevation',
-    #          legend_kwargs: dict = {'loc': 'upper left'},
-    #          outlet_kwargs: dict = {'ec': 'k', 'color': 'tab:red'},
-    #          basin_kwargs: dict = {'edgecolor': 'k'},
-    #          demimg_kwargs: dict = {'cbar_kwargs': {'shrink': 0.8}},
-    #          mask_kwargs: dict = {'hatches': ['////']},
-    #          demhist_kwargs: dict = {'alpha': 0.5},
-    #          hypsometric_kwargs: dict = {'color': 'darkblue'},
-    #          rivers_kwargs: dict = {'color': 'tab:red'},
-    #          exposure_kwargs: dict = {'ec': 'k', 'width': 0.6},
-    #          kwargs: dict = {'figsize': (12, 5)}) -> matplotlib.axes.Axes:
-    #     """
-    #     Create a comprehensive visualization of watershed characteristics
-    #         including:
-    #         - 2D map view showing DEM, basin boundary, rivers and outlet point
-    #         - Polar plot showing terrain aspect/exposure distribution
-    #         - Hypsometric curve and elevation histogram
+        if len(self.rivers) > 0 and show_rivers:
+            self.rivers.plot(ax=ax, label='Rivers', zorder=2,
+                             color='tab:red', alpha=0.5)
 
-    #     Args:
-    #         legend (bool, optional): Whether to display legend.
-    #             Defaults to True.
-    #         legend_kwargs (dict, optional): Arguments for legend formatting.
-    #             Defaults to {'loc': 'upper left'}.
-    #         outlet_kwargs (dict, optional): Styling for basin outlet point.
-    #             Defaults to {'ec': 'k', 'color': 'tab:red'}.
-    #         basin_kwargs (dict, optional): Styling for basin boundary.
-    #             Defaults to {'edgecolor': 'k'}.
-    #         demimg_kwargs (dict, optional): Arguments for DEM image display.
-    #             Defaults to {'cbar_kwargs': {'shrink': 0.8}}.
-    #         mask_kwargs  (dict, optional): Arguments for mask hatches.
-    #             Defaults to {'hatches': ['////']}.
-    #         demhist_kwargs (dict, optional): Arguments for elevation histogram.
-    #             Defaults to {'alpha': 0.5}.
-    #         hypsometric_kwargs (dict, optional): Styling for hypsometric curve.
-    #             Defaults to {'color': 'darkblue'}.
-    #         rivers_kwargs (dict, optional): Styling for river network.
-    #             Defaults to {'color': 'tab:red'}.
-    #         exposure_kwargs (dict, optional): Styling for polar exposure plot
-    #             Defaults to {'ec':'k', 'width':0.5}
-    #         kwargs (dict, optional): Additional figure parameters.
-    #             Defaults to {'figsize': (12, 5)}.
-
-    #     Returns:
-    #         (tuple): Matplotlib figure and axes objects
-    #             (fig, (ax0, ax1, ax2, ax3))
-    #             - ax0: Map view axis
-    #             - ax1: Aspect distribution polar axis
-    #             - ax2: Hypsometric curve axis
-    #             - ax3: Elevation histogram axis
-    #     """
-    #     # Create figure and axes
-    #     fig = plt.figure(**kwargs)
-    #     ax0 = fig.add_subplot(121)
-    #     ax1 = fig.add_subplot(222, projection='polar')
-    #     ax2 = fig.add_subplot(224)
-    #     ax3 = ax2.twinx()
-
-    #     # Plot basin and rivers
-    #     try:
-    #         self.basin.boundary.plot(ax=ax0, zorder=2, **basin_kwargs)
-    #         ax0.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
-    #                     label='Outlet', zorder=3, **outlet_kwargs)
-    #     except Exception as e:
-    #         warnings.warn(str(e))
-
-    #     if len(self.main_river) > 0:
-    #         self.main_river.plot(ax=ax0, label='Main River', zorder=2,
-    #                              **rivers_kwargs)
-
-    #     # Plot dem data
-    #     try:
-    #         self.dem[demvar].plot.imshow(ax=ax0, zorder=0, **demimg_kwargs)
-    #         if len(self.hypsometric_curve) == 0:
-    #             self.get_hypsometric_curve()
-    #         hypso = self.hypsometric_curve
-    #         hypso.plot(ax=ax2, zorder=1, label='Hypsometry',
-    #                    **hypsometric_kwargs)
-    #         ax3.plot(hypso.index, hypso.diff(), zorder=0, **demhist_kwargs)
-    #     except Exception as e:
-    #         warnings.warn(str(e))
-
-    #     # Plot snow area mask
-    #     try:
-    #         mask = self.mask_raster
-    #         nanmask = self.dem.elevation.isnull()
-    #         if mask.sum().item() != self.totalcells:
-    #             mask.where(~nanmask).where(~mask).plot.contourf(
-    #                 ax=ax0, zorder=1, colors=None, alpha=0, add_colorbar=False,
-    #                 **mask_kwargs)
-    #             ax0.plot([], [], label='Snowy Area', color='k')
-    #     except Exception as e:
-    #         warnings.warn(str(e))
-
-    #     # Plot basin exposition
-    #     if len(self.geoparams.index) > 1:
-    #         exp = pd.DataFrame(self.expdist, columns=[self.fid])
-    #         exp.index = exp.index.map(lambda x: x.split('_')[0])
-    #         exp = exp.loc[['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']]
-    #         exp = pd.concat([exp.iloc[:, 0], exp.iloc[:, 0][:'N']])
-    #         ax1.bar(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315, 0]), exp,
-    #                 **exposure_kwargs)
-    #         ax1.set_xticks(ax1.get_xticks())
-    #         ax1.set_xticklabels(exp.index.values[:-1])
-    #         ax1.set_ylim(0, exp.max()*1.1)
-
-    #     # Aesthetics
-    #     try:
-    #         for axis in [ax0, ax1, ax2, ax3]:
-    #             axis.set_title('')
-    #             if axis in [ax0, ax2]:
-    #                 axis.legend(**legend_kwargs)
-    #         bounds = self.basin.minimum_bounding_circle().bounds
-    #         ax0.set_xlim(bounds.minx.item(), bounds.maxx.item())
-    #         ax0.set_ylim(bounds.miny.item(), bounds.maxy.item())
-    #         ax1.set_theta_zero_location("N")
-    #         ax1.set_theta_direction(-1)
-    #         ax1.set_xticks(ax1.get_xticks())
-    #         ax1.set_yticklabels([])
-    #         ax1.grid(True, ls=":")
-
-    #         ax2.grid(True, ls=":")
-    #         ax2.set_ylim(0, 1)
-    #         ax3.set_ylim(0, ax3.get_ylim()[-1])
-    #         ax2.set_xlabel('(m)')
-
-    #     except Exception as e:
-    #         warnings.warn(str(e))
-    #     return fig, (ax0, ax1, ax2, ax3)
+        title = f'{self.fid} - A = {self.geoparams.loc["area"].item():.2f} km²'
+        ax.set_title(title, weight='bold')
+        centergraph2polygon(self.basin, ax)
+        ax.set_xticks([]), ax.set_yticks([])
+        ax.set_xlabel(''), ax.set_ylabel('')
+        ax.legend()
+        return fig, ax, cbar
