@@ -756,7 +756,7 @@ class RiverBasin(HydroDEM, HydroLULC):
 
     def plot(self, show_rivers=False, show_mriver=True,
              figsize=(8, 8), cbar_kwargs={'label': 'Elevation (m)'},
-             dem_kwargs={}, mask_kwargs={'hatches': ['XXX']}):
+             dem_kwargs={'cmap': 'gist_earth'}, mask_kwargs={'hatches': ['XXX']}):
         """
         Plot a map of the basin showing the DEM, basin boundary, outlet,
         main river, river network, and optionally a mask (e.g. snow area).
@@ -782,7 +782,6 @@ class RiverBasin(HydroDEM, HydroLULC):
         ax.scatter(self.basin['outlet_x'], self.basin['outlet_y'],
                    label='Outlet', zorder=3, ec='k', color='tab:red')
         m = self.dem['elevation'].plot.imshow(ax=ax, zorder=0,
-                                              cmap='gist_earth',
                                               add_colorbar=False, **dem_kwargs)
         cbar = add_colorbar(m, fig, ax, **cbar_kwargs)
         self.dem['hillshade'].plot.imshow(ax=ax, zorder=1, cmap='gray',

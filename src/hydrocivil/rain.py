@@ -306,7 +306,7 @@ class RainStorm:
         self.time = pr.time.values
         return self
 
-    def _infiltrate_SCS(self, cn: float, r: float = 0.2, **kwargs):
+    def _infiltrate_SCS(self, cn: float, r: float, **kwargs):
         """
         Compute infiltration rate using the SCS method.
 
@@ -425,11 +425,14 @@ class RainStorm:
         self.infiltration = method
         if method == 'SCS':
             # Grab curve number from keyword arguments
-            cn = kwargs['cn']
-            r = kwargs['r']
             kwargs = kwargs.copy()
-            kwargs.pop('cn', None)
+            cn = kwargs['cn']
+            if 'r' in kwargs.keys():
+                r = kwargs['r']
+            else:
+                r = 0.2
             kwargs.pop('r', None)
+            kwargs.pop('cn', None)
 
             # Compute losses
             infr = self._infiltrate_SCS(cn=cn, r=r, **kwargs)

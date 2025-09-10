@@ -439,7 +439,7 @@ def terrain_exposure(aspect: xr.DataArray,
 
 
 def tc_SCS(mriverlen: int | float, meanslope: int | float,
-           curvenumber: int | float, **kwargs: Any) -> float:
+           cn: int | float, **kwargs: Any) -> float:
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -451,14 +451,14 @@ def tc_SCS(mriverlen: int | float, meanslope: int | float,
     Args:
         mriverlen (float): Main river length in (km)
         meanslope (float): Mean slope in m/m
-        curvenumber (float): Basin curve number (dimensionless)
+        cn (float): Basin curve number (dimensionless)
         **kwargs do nothing
 
     Returns:
         Tc (float): Concentration time (minutes)
     """
     mriverlen_ft = 3280.84*mriverlen
-    potentialstorage_inch = SCS_MaximumRetention(curvenumber, cfactor=1)
+    potentialstorage_inch = SCS_MaximumRetention(cn, cfactor=1)
     slope_perc = meanslope*100
     numerator = mriverlen_ft**0.8*((potentialstorage_inch+1) ** 0.7)
     denominator = 1140*slope_perc**0.5

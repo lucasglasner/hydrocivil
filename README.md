@@ -28,6 +28,7 @@ pip install --force-reinstall --no-deps hydrocivil
 from hydrocivil.misc import load_example_data
 from hydrocivil.watersheds import RiverBasin
 from hydrocivil.rain import RainStorm
+import matplotlib.pyplot as plt
 ```
 
 #### Compute basin properties
@@ -42,7 +43,7 @@ from hydrocivil.rain import RainStorm
 basin, rnetwork, dem, cn = load_example_data()
 
 # Create RiverBasin object and compute properties
-wshed = RiverBasin('Example', basin, rnetwork, dem, cn, amc='wet')
+wshed = RiverBasin(fid='Example', basin=basin, rivers=rnetwork, dem=dem, lulc=cn, amc='wet')
 wshed = wshed.compute_params()  # <- compute geomorphological parameters (SI units)
 wshed.plot() # Check results (e.g basin polygon, identified main river, etc)
 ```
@@ -58,10 +59,11 @@ wshed.plot() # Check results (e.g basin polygon, identified main river, etc)
 storm = RainStorm('SCS_I24')
 storm = storm.compute(timestep=0.5, duration=24, rainfall=100)
 # Use SCS method for abstractions with the watershed average curve number
-storm = storm.infiltrate(method='SCS', cn=wshed.params.loc['curvenumber'].item())
+storm = storm.infiltrate(method='SCS', cn=wshed.geoparams.loc['cn'].item())
 
 storm.pr.to_series().plot(kind='bar', width=1, ec='k')
 storm.infr.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
+plt.ylabel('mm/h')
 ```
 
     <Axes: >
@@ -72,10 +74,11 @@ storm.infr.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
 
 ```python
 # Compute the basin SCS unit hydrograph for the storm (UH related to the storm timestep)
-wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph. 
+wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph and SCS lagtime formula. 
 
 # Compute the flood hydrograph as the convolution of the effective precipitation depth with the unit hydrograph
-wshed.UnitHydro.convolve(storm.pr_eff * storm.timestep).plot()
+wshed.unithydro.convolve(storm.pr_eff.to_series() * storm.timestep).plot()
+plt.ylabel('m³/s')
 ```
 
     <Axes: >
