@@ -16,7 +16,7 @@ import xarray as xr
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon
 import whitebox_workflows as wbw
-wbe = wbw.WbEnvironment(user_id='hydrocivil')
+wbe = wbw.WbEnvironment()
 
 # ---------------------------- wb2py functionality --------------------------- #
 
