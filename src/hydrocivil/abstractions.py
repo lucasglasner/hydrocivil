@@ -408,8 +408,7 @@ def SCS_Abstractions(pr: int | float | ArrayLike,
     Args:
         pr (array_like or float): Precipitation in mm 
         cn (array_like or float): Curve Number
-        r (float, optional): Fraction of the maximum potential retention
-            Defaults to 0.2.
+        r (float, optional): Initial abstraction ratio. Default to 0.2.
         **kwargs are passed to SCS_MaximumRetention function
 
 

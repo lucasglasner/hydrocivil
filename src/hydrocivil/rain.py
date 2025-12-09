@@ -103,7 +103,14 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
 
     Args:
         storm_duration (int, float, or array-like): Target duration(s) [hr].
-        ref_pgauge (str, optional): Reference gauge name or 'Grunsky'.
+        ref_pgauge (str, optional): Reference gauge name or 'Grunsky' method.
+            Options: Putre, Lequena, Toconce, Rivadavia, La Paloma, Illapel,
+            La Tranquilla, Quillota, Rungue, Lago Peñuelas, Los Panguiles, 
+            Quinta Normal, San Joaquin, Pirque, Melipilla, Rapel, Llaullauquén,
+            San Fernando, Curicó, Armerillo, Colbún, Chillán, Concepción, 
+            Polcura, Quilaco, Temuco, Pullinque, Valdivia, Osorno, Ensenada,
+            Puerto Montt, Lago Chapo, Canutillar, Chaitén, Puerto Aysén,
+            Punta Arenas. Default is 'Grunsky'.
         ref_duration (int or float, optional): Reference duration [hr].
             Default is 24.
         expon (float): Exponent of the Grunsky power law. Defaults to 0.5.
@@ -142,7 +149,6 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
 
 class RainStorm:
     """
-    RainStorm class used to building temporal rainfall distributions. 
     The class can be used to build rainstorms that follow any of scipy
     theoretical distributions (e.g 'norm', 'skewnorm', 'gamma', etc) or 
     the empirical rain distributions of the SCS type I, IA, II, III and the 
@@ -157,7 +163,20 @@ class RainStorm:
 
         Args:
             kind (str): Type of storm model to use.
-                - Predefined (e.g., 'SCS_I24', 'GX_Benitez1985_1')
+                - Options:
+                   G1_Espildora1979, G2_Espildora1979, G3_Espildora1979,
+                   G1_Benitez1985, G2_Benitez1985, G3_Benitez1985,
+                   SCS_I24, SCS_IA24,
+                   SCS_II6, SCS_II12, SCS_II24, SCS_II48,
+                   SCS_III24,
+                   G1p10_Varas1985, G1p25_Varas1985, G1p50_Varas1985,
+                   G1p75_Varas1985, G1p90_Varas1985,
+                   G2p10_Varas1985, G2p25_Varas1985, G2p50_Varas1985,
+                   G2p75_Varas1985, G2p90_Varas1985,
+                   G3p10_Varas1985, G3p25_Varas1985, G3p50_Varas1985,
+                   G3p75_Varas1985, G3p90_Varas1985,
+                   G4p10_Varas1985, G4p25_Varas1985, G4p50_Varas1985,
+                   G4p75_Varas1985, G4p90_Varas1985
                 - SciPy distribution (e.g., 'norm', 'gamma')
             **kwargs: Additional parameters depending on the storm type.
                 - For predefined storms: No extra parameters needed.
