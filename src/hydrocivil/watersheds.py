@@ -28,8 +28,8 @@ from .unithydrographs import LumpedUnitHydrograph as SUH
 from .geomorphology import basin_outlet, process_gdaldem
 from .geomorphology import terrain_exposure, get_main_river
 from .global_vars import GDAL_EXCEPTIONS
-from .abstractions import (cn_correction, SCS_EffectiveRainfall,
-                           SCS_EquivalentCurveNumber)
+from .soil import (cn_correction, SCS_EffectiveRainfall,
+                   SCS_EquivalentCurveNumber)
 from .graphical import add_colorbar, centergraph2polygon
 
 if GDAL_EXCEPTIONS:

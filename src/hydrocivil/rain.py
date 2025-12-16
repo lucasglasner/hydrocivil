@@ -15,8 +15,8 @@ import xarray as xr
 
 from typing import Any, Type
 from numpy.typing import ArrayLike
-from .abstractions import SCS_Abstractions, Horton_Abstractions
-from .abstractions import Philip_Abstractions, GreenAmpt_Abstractions
+from .soil import SCS_Abstractions, Horton_Abstractions
+from .soil import Philip_Abstractions, GreenAmpt_Abstractions
 from .global_vars import SHYETO_DATA, DURCOEFS_PGAUGES
 from .misc import obj_to_xarray, series2func
 

@@ -13,7 +13,7 @@
 
 # Core functionality
 from . import (
-    abstractions,
+    soil,
     channels,
     geomorphology,
     unithydrographs,

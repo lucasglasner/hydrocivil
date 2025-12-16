@@ -19,7 +19,7 @@ from shapely.geometry import Point
 import networkx as nx
 
 from .misc import gdal2xarray, xarray2gdal, rasterize
-from .abstractions import SCS_MaximumRetention
+from .soil import SCS_MaximumRetention
 from .wb_tools import (wbw, wbe, wbRaster2xarray, wbVector2geopandas,
                        xarray2wbRaster)
 
