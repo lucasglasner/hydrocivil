@@ -182,8 +182,10 @@ def obj_to_xarray(obj: ArrayLike, **kwargs: Any) -> xr.DataArray | xr.Dataset:
     """
     if isinstance(obj, np.ndarray):
         new_xarray = xr.DataArray(obj, **kwargs)
-    elif isinstance(obj, pd.Series) or isinstance(obj, pd.DataFrame):
-        return obj_to_xarray(obj.values, **kwargs)
+    elif isinstance(obj, pd.Series):
+        return obj.to_xarray()
+    elif isinstance(obj, pd.DataFrame):
+        return obj.stack().to_xarray()
     elif isinstance(obj, list) or isinstance(obj, tuple):
         return obj_to_xarray(np.array(obj), **kwargs)
     elif isinstance(obj, int) or isinstance(obj, float):

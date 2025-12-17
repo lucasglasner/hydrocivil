@@ -147,6 +147,40 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
     coefs = np.clip(coefs, 0, None)
     return coefs if not scalar_input else coefs[0]
 
+
+def alternating_block_sort(arr: ArrayLike, axis=0):
+    """
+    Sorts an array in an alternating block pattern along a specified axis.
+
+    Args:
+        arr (ArrayLike): Input array to be rearranged.
+        axis (int, optional): Axis along which to sort and rearrange.
+            Default is 0.
+    Returns
+        rearranged (ArrayLike): Array with values rearranged in alternating
+            block pattern, with the highest values placed near the center.
+    """
+    arr = np.asarray(arr)
+
+    # Sort in descending order. Get size, create index and empty arrays
+    arr_sorted = np.sort(arr, axis=axis)
+    arr_sorted = np.flip(arr_sorted, axis=axis)
+
+    n = arr.shape[axis]
+    rearranged = np.zeros_like(arr_sorted)
+    indices = [slice(None)] * arr.ndim
+
+    # Fill the rearranged array with alternating block pattern
+    for i in range(n):
+        pos = n // 2 + (-1) ** i * ((i + 1) // 2)
+        # Select the i-th slice and place it at position 'pos'
+        indices[axis] = i
+        source_slice = arr_sorted[tuple(indices)]
+
+        indices[axis] = pos
+        rearranged[tuple(indices)] = source_slice
+    return rearranged
+
 # ------------------------------- Design Storms ------------------------------ #
 
 
@@ -284,10 +318,10 @@ class RainStorm:
                            (xr_rainfall, 'rainfall'),
                            (xr_time_shift, 'time_shift')]:
             if 'dim_' in str(da.dims):
-                new_dims = {
-                    dim: f'{prefix}_dim_{np.random.randint(0, 100)}'
-                    for dim in da.dims if dim.startswith('dim_')
-                }
+                new_dims = {dim: f'{prefix}_{i}'
+                            for i, dim in enumerate(da.dims)
+                            if dim.startswith('dim_')
+                            }
                 da = da.rename(new_dims)
                 if prefix == 'duration':
                     xr_duration = da
@@ -427,11 +461,9 @@ class RainStorm:
         )
         norm_time = (xr.DataArray(base_time, dims=['time']) /
                      xr_duration).clip(0, 1)
-        shyeto = source_cum.interp(
-            source_time=norm_time, **interp_kwargs
-        )
-        # Normalize final value to exactly 1.0 to ensure pr_cum matches
-        # rainfall
+        shyeto = source_cum.interp(source_time=norm_time, **interp_kwargs
+                                   )
+        # Normalize final value to 1.0 to ensure pr_cum matches rainfall
         shyeto = shyeto / shyeto.isel(time=-1, drop=False)
         shyeto = shyeto.assign_coords(time=base_time)
         shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
@@ -500,6 +532,7 @@ class RainStorm:
                 pad with zeros after precipitation. Default is 0.
             interp_kwargs (dict): extra arguments for interpolation
             **idf_kwargs: Additional arguments passed to duration_coef
+                or other storm-specific parameters.
 
         Returns:
             Updated class instance with computed storm.
