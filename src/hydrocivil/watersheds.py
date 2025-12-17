@@ -630,13 +630,7 @@ class RiverBasin(HydroDEM, HydroLULC):
              hard: bool = False, **kwargs: Any):
         """
         Clips the watershed data to a specified polygonal mask and returns a
-        new RiverBasin object with updated geomorphometric parameters. This
-        method takes a polygon mask (as a GeoSeries or GeoDataFrame), dissolves
-        it to ensure a single contiguous boundary, and uses it to clip the
-        watershed's spatial data. The method then creates a new RiverBasin
-        instance using the clipped data, recomputes all relevant geomorphometric
-        parameters for the new area, and updates the mask_vector and mask_raster
-        attributes accordingly.
+        new RiverBasin object with updated geomorphometric parameters.
 
         Args:
             poly_mask (gpd.GeoSeries | gpd.GeoDataFrame): The polygon mask
@@ -670,12 +664,6 @@ class RiverBasin(HydroDEM, HydroLULC):
         """
         Updates the RiverBasin object to represent only the pluvial (rain-fed)
         portion of the watershed below a specified snow limit elevation.
-
-        This method clips the basin to areas below the given snow limit
-        elevation threshold. The resulting watershed represents only the
-        portion of the basin that receives precipitation as rainfall rather
-        than snow. All watershed properties (e.g., area, rivers, DEM, etc.)
-        are updated accordingly.
 
         Args:
             snowlimit (int|float): Elevation threshold (in the same units as

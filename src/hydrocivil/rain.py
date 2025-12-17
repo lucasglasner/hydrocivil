@@ -279,6 +279,23 @@ class RainStorm:
         xr_rainfall = obj_to_xarray(rainfall).squeeze()
         xr_time_shift = obj_to_xarray(time_shift).squeeze()
 
+        # Rename generic dimension names to avoid broadcasting conflicts
+        for da, prefix in [(xr_duration, 'duration'),
+                           (xr_rainfall, 'rainfall'),
+                           (xr_time_shift, 'time_shift')]:
+            if 'dim_' in str(da.dims):
+                new_dims = {
+                    dim: f'{prefix}_dim_{np.random.randint(0, 100)}'
+                    for dim in da.dims if dim.startswith('dim_')
+                }
+                da = da.rename(new_dims)
+                if prefix == 'duration':
+                    xr_duration = da
+                elif prefix == 'rainfall':
+                    xr_rainfall = da
+                else:
+                    xr_time_shift = da
+
         # Broadcast all to same shape
         xr_duration, xr_rainfall = xr.broadcast(xr_duration,
                                                 xr_rainfall)
