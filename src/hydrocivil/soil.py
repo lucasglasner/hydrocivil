@@ -9,7 +9,10 @@
 
 from scipy.optimize import root_scalar
 import numpy as np
+import xarray as xr
+from typing import Any, Type
 from numpy.typing import ArrayLike
+from dataclasses import dataclass
 
 
 # --------------------------- Vadose zone equations -------------------------- #
@@ -71,7 +74,17 @@ def mualem_conductivity(Se: float, Ks: float, n: float,
 # ----------------------------- Horton equations ----------------------------- #
 
 
-@np.vectorize
+@dataclass
+class HortonParams:
+    """Parameters for Horton infiltration model."""
+    # Initial infiltration rate (mm/h)
+    f0: float | ArrayLike | xr.DataArray
+    # Final/saturated infiltration rate (mm/h)
+    fc: float | ArrayLike | xr.DataArray
+    # Decay coefficient (1/h)
+    k: float | ArrayLike | xr.DataArray
+
+
 def Horton_Abstractions(pr: float, duration: float, f0: float, fc: float,
                         k: float) -> float:
     """
@@ -91,14 +104,13 @@ def Horton_Abstractions(pr: float, duration: float, f0: float, fc: float,
         duration (float): Time duration of rainfall event (h)
         f0 (float): Dry or initial soil hydraulic conductivity (mm/h)
         fc (float): Saturated soil hydraulic conductivity (mm/h)
-        k (float): Horton's method decay coefficient (1/h)
+        k (float): Horton's decay coefficient (1/h)
 
     Returns:
         f (float): Infiltration rate (mm/h)
     """
-    f = fc + (f0 - fc) * np.exp(- k * duration)
-    if pr <= f:
-        f = pr
+    f = fc + (f0 - fc) * np.exp(-k * duration)
+    f = np.where(pr <= f, pr, f)
     return f
 
 
@@ -133,6 +145,15 @@ def Horton_EffectiveRainfall(pr: float, duration: float, f0: float, fc: float,
     return pr_eff
 
 # ----------------------------- Philip's Equation ---------------------------- #
+
+
+@dataclass
+class PhilipParams:
+    """Parameters for Philip infiltration model."""
+    # Sorptivity coefficient (mm/h^0.5)
+    S: float | ArrayLike | xr.DataArray
+    # Saturated hydraulic conductivity (mm/h)
+    K: float | ArrayLike | xr.DataArray
 
 
 @np.vectorize
@@ -181,6 +202,19 @@ def Philip_EffectiveRainfall(pr: float, duration: float, S: float, K: float
 
 
 # -------------------------- Green & Ampt equations -------------------------- #
+@dataclass
+class GreenAmptParams:
+    """Parameters for Green-Ampt infiltration model."""
+    # Saturated hydraulic conductivity (mm/h)
+    K: float | ArrayLike | xr.DataArray
+    # Soil porosity (-)
+    p: float | ArrayLike | xr.DataArray
+    # Soil fractional moisture (-)
+    theta_s: float | ArrayLike | xr.DataArray
+    # Soil suction (mm)
+    psi: float | ArrayLike | xr.DataArray
+    # Water depth above soil column (mm)
+    h0: float | ArrayLike | xr.DataArray = 10.0
 
 
 @np.vectorize
@@ -266,6 +300,13 @@ def GreenAmpt_EffectiveRainfall(pr: float, duration: float, K: float, p: float,
     return pr_eff
 
 # ------------------------ SCS curve number equations ------------------------ #
+
+
+@dataclass
+class SCSParams:
+    """Parameters for SCS Curve Number infiltration model."""
+    cn: float | ArrayLike | xr.DataArray        # Curve Number (-)
+    r: float | ArrayLike | xr.DataArray = 0.2   # Initial abstraction ratio (-)
 
 
 def cn_correction(cn_II: int | float | ArrayLike,
@@ -391,9 +432,8 @@ def SCS_EffectiveRainfall(pr: int | float,
             raise ValueError("Initial abstraction ratio must be positive")
         S = SCS_MaximumRetention(cn, **kwargs)
         Ia = r * S
-        if pr <= Ia:
-            return 0.0
-        return (pr - Ia) ** 2 / (pr - Ia + S)
+        pr_eff = np.where(pr <= Ia, 0.0, (pr - Ia)**2 / (pr - Ia + S))
+        return pr_eff
 
 
 @np.vectorize
@@ -418,3 +458,156 @@ def SCS_Abstractions(pr: int | float | ArrayLike,
     pr_eff = SCS_EffectiveRainfall(pr, cn, r=r, **kwargs)
     Losses = pr-pr_eff
     return Losses
+
+
+# ------------------------------ Soil layer API ----------------------------- #
+
+class SoilLayer:
+    """
+    Single-layer soil abstraction model. Provides infiltration/losses for
+    a given precipitation time series using supported methods.
+
+    Supported methods: SCS, Horton, Philip, GreenAmpt.
+    """
+
+    def __init__(self, method: str, timestep: float,
+                 **params: Any) -> None:
+        self.method = method
+        self.timestep = timestep
+        self.params = params
+        self.infr = None
+        self.pr_eff = None
+
+    def _infiltrate_SCS(self, pr: xr.DataArray, time: ArrayLike,
+                        timestep: float, params: SCSParams,
+                        **ufunc_kwargs: Any) -> xr.DataArray:
+        pr_cum = pr.cumsum('time') * timestep
+        infr_cum = xr.apply_ufunc(
+            SCS_Abstractions, pr_cum, params.cn, params.r,
+            input_core_dims=[['time'], [], []],
+            output_core_dims=[['time']],
+            vectorize=True,
+            **ufunc_kwargs,
+        )
+        infr = infr_cum.transpose(*pr.dims).diff('time')
+        infr = infr.reindex({'time': time}) / timestep
+        infr[0] = infr_cum.isel(time=0)
+        return infr
+
+    def _infiltrate_Horton(self, pr: xr.DataArray, time: ArrayLike,
+                           params: HortonParams,
+                           **ufunc_kwargs: Any) -> xr.DataArray:
+        infr = xr.apply_ufunc(
+            Horton_Abstractions, pr, time, params.f0, params.fc, params.k,
+            input_core_dims=[['time'], ['time'], [], [], []],
+            output_core_dims=[['time']],
+            vectorize=True,
+            **ufunc_kwargs,
+        )
+        return infr.transpose(*pr.dims)
+
+    def _infiltrate_Philip(self, pr: xr.DataArray, time: ArrayLike,
+                           params: PhilipParams,
+                           **ufunc_kwargs: Any) -> xr.DataArray:
+        infr = xr.apply_ufunc(
+            Philip_Abstractions, pr, time, params.S, params.K,
+            input_core_dims=[['time'], ['time'], [], []],
+            output_core_dims=[['time']],
+            vectorize=True,
+            **ufunc_kwargs,
+        )
+        return infr.transpose(*pr.dims)
+
+    def _infiltrate_GreenAmpt(self, pr: xr.DataArray, time: ArrayLike,
+                              params: GreenAmptParams,
+                              **ufunc_kwargs: Any) -> xr.DataArray:
+        infr = xr.apply_ufunc(
+            GreenAmpt_Abstractions, pr, time,
+            params.K, params.p, params.theta_s, params.psi, params.h0,
+            input_core_dims=[['time'], ['time'], [], [], [], [], []],
+            output_core_dims=[['time']],
+            vectorize=True,
+            **ufunc_kwargs,
+        )
+        return infr.transpose(*pr.dims)
+
+    def infiltrate(self, pr: xr.DataArray,
+                   time: ArrayLike | None = None,
+                   **kwargs: Any) -> Type['SoilLayer']:
+        """
+        Compute infiltration / losses for a precipitation rate series.
+
+        Args:
+            pr: Precipitation rate [mm/hr] with a 'time' dimension.
+            time: Optional array of time coordinates; defaults to pr.time.
+            **kwargs: Parameters for the selected routine.
+
+        Returns:
+            Updated SoilLayer instance with infr and pr_eff set.
+        """
+        if 'time' not in pr.dims:
+            raise ValueError("Precipitation array must have 'time' dimension")
+
+        merged_params = {**self.params, **kwargs}
+        params = merged_params.copy()
+        time_vals = pr.time.values if time is None else np.asarray(time)
+
+        if self.method == 'SCS':
+            if isinstance(merged_params, SCSParams):
+                scs_params = merged_params
+            else:
+                scs_params = SCSParams(
+                    cn=params.pop('cn'),
+                    r=params.pop('r', 0.2)
+                )
+            infr = self._infiltrate_SCS(pr, time_vals, self.timestep,
+                                        params=scs_params, **params)
+        elif self.method == 'Horton':
+            if isinstance(merged_params, HortonParams):
+                horton_params = merged_params
+            else:
+                horton_params = HortonParams(
+                    f0=params.pop('f0'),
+                    fc=params.pop('fc'),
+                    k=params.pop('k')
+                )
+            infr = self._infiltrate_Horton(pr, time_vals, params=horton_params,
+                                           **params)
+        elif self.method == 'Philip':
+            if isinstance(merged_params, PhilipParams):
+                philip_params = merged_params
+            else:
+                philip_params = PhilipParams(
+                    S=params.pop('S'),
+                    K=params.pop('K')
+                )
+            infr = self._infiltrate_Philip(pr, time_vals, params=philip_params,
+                                           **params)
+        elif self.method == 'GreenAmpt':
+            if isinstance(merged_params, GreenAmptParams):
+                ga_params = merged_params
+            else:
+                ga_params = GreenAmptParams(
+                    K=params.pop('K'),
+                    p=params.pop('p'),
+                    theta_s=params.pop('theta_s'),
+                    psi=params.pop('psi'),
+                    h0=params.pop('h0', 10.0)
+                )
+            infr = self._infiltrate_GreenAmpt(pr, time_vals, params=ga_params,
+                                              **params)
+        else:
+            raise ValueError(f"{self.method} unknown infiltration method.")
+
+        pr_eff = pr - infr
+        pr_eff = pr_eff.where(pr_eff >= 0).fillna(0)
+
+        infr.attrs = {'standard_name': 'infiltration rate', 'units': 'mm/hr'}
+        pr_eff.attrs = {'standard_name': 'effective precipitation rate',
+                        'units': 'mm/hr'}
+
+        self.method = self.method
+        self.params = merged_params
+        self.infr = infr
+        self.pr_eff = pr_eff
+        return self

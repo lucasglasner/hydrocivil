@@ -9,14 +9,11 @@
 
 import numpy as np
 import pandas as pd
-import warnings
 import copy as pycopy
 import xarray as xr
 
 from typing import Any, Type
 from numpy.typing import ArrayLike
-from .soil import SCS_Abstractions, Horton_Abstractions
-from .soil import Philip_Abstractions, GreenAmpt_Abstractions
 from .global_vars import SHYETO_DATA, DURCOEFS_PGAUGES
 from .misc import obj_to_xarray, series2func
 
@@ -31,7 +28,7 @@ def grunsky_coef(storm_duration: int | float,
     """
     This function computes the duration coefficient given by a Grunsky-like
     Formula. Those formulas state that the duration coefficient is a power
-    law of the storm duration t: 
+    law of the storm duration t:
 
         Cd (t) = (t / ref) ^ b
 
@@ -105,9 +102,9 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
         storm_duration (int, float, or array-like): Target duration(s) [hr].
         ref_pgauge (str, optional): Reference gauge name or 'Grunsky' method.
             Options: Putre, Lequena, Toconce, Rivadavia, La Paloma, Illapel,
-            La Tranquilla, Quillota, Rungue, Lago Peñuelas, Los Panguiles, 
+            La Tranquilla, Quillota, Rungue, Lago Peñuelas, Los Panguiles,
             Quinta Normal, San Joaquin, Pirque, Melipilla, Rapel, Llaullauquén,
-            San Fernando, Curicó, Armerillo, Colbún, Chillán, Concepción, 
+            San Fernando, Curicó, Armerillo, Colbún, Chillán, Concepción,
             Polcura, Quilaco, Temuco, Pullinque, Valdivia, Osorno, Ensenada,
             Puerto Montt, Lago Chapo, Canutillar, Chaitén, Puerto Aysén,
             Punta Arenas. Default is 'Grunsky'.
@@ -119,17 +116,19 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
     Returns:
         np.ndarray: Duration coefficient(s) (dimensionless).
     """
-    if np.isscalar(storm_duration):
-        storm_duration = np.array([storm_duration])
-    else:
-        storm_duration = np.asarray(storm_duration)
-    coefs = np.full(storm_duration.shape, np.nan)
-    bell_mask = storm_duration < 1
+    durations = np.asarray(storm_duration, dtype=float)
+    scalar_input = durations.ndim == 0
+    durations = np.atleast_1d(durations)
+
+    bell_mask = durations < 1
     if ref_pgauge == 'Grunsky':
-        coefs = grunsky_coef(storm_duration, ref_duration=ref_duration,
+        coefs = grunsky_coef(durations, ref_duration=ref_duration,
                              expon=expon)
-        coefs[bell_mask] = bell_coef(storm_duration[bell_mask],
-                                     ref_duration=ref_duration)
+        if bell_mask.any():
+            cd1 = grunsky_coef(1.0, ref_duration=ref_duration, expon=expon)
+            coefs = coefs.copy()
+            coefs[bell_mask] = bell_coef(durations[bell_mask], cd1=cd1,
+                                         ref_duration=ref_duration)
     else:
         if ref_pgauge not in DURCOEFS_PGAUGES.columns:
             raise ValueError(f"Reference rain gauge '{ref_pgauge}' not found.")
@@ -138,11 +137,15 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
                 "Reference duration must be 24 hr for tabulated "
                 "duration coefficients.")
         func = series2func(DURCOEFS_PGAUGES[ref_pgauge], **kwargs)
-        CD1 = DURCOEFS_PGAUGES[ref_pgauge].loc[1]
-        coefs = func(storm_duration)
-        coefs[bell_mask] = bell_coef(storm_duration[bell_mask], cd1=CD1)
-    coefs[coefs < 0] = 0
-    return coefs
+        coefs = func(durations)
+        if bell_mask.any():
+            cd1 = DURCOEFS_PGAUGES[ref_pgauge].loc[1]
+            coefs = coefs.copy()
+            coefs[bell_mask] = bell_coef(durations[bell_mask], cd1=cd1,
+                                         ref_duration=ref_duration)
+
+    coefs = np.clip(coefs, 0, None)
+    return coefs if not scalar_input else coefs[0]
 
 # ------------------------------- Design Storms ------------------------------ #
 
@@ -150,14 +153,14 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
 class RainStorm:
     """
     The class can be used to build rainstorms that follow any of scipy
-    theoretical distributions (e.g 'norm', 'skewnorm', 'gamma', etc) or 
-    the empirical rain distributions of the SCS type I, IA, II, III and the 
+    theoretical distributions (e.g 'norm', 'skewnorm', 'gamma', etc) or
+    the empirical rain distributions of the SCS type I, IA, II, III and the
     Chilean synthetic hyetographs of (Espildora and Echavarría 1979),
-    (Benitez and Verni 1985) and (Varas 1985). 
+    (Benitez and Verni 1985) and (Varas 1985).
     """
     PREDEFINED_STORMS = SHYETO_DATA.columns
 
-    def __init__(self, kind: str, **kwargs: Any) -> None:
+    def __init__(self, kind: str, timestep: float, **kwargs: Any) -> None:
         """
         Synthetic RainStorm builder
 
@@ -178,27 +181,29 @@ class RainStorm:
                    G4p10_Varas1985, G4p25_Varas1985, G4p50_Varas1985,
                    G4p75_Varas1985, G4p90_Varas1985
                 - SciPy distribution (e.g., 'norm', 'gamma')
+            timestep (float): Storm timestep or resolution in hours.
             **kwargs: Additional parameters depending on the storm type.
                 - For predefined storms: No extra parameters needed.
                 - For SciPy distributions: `loc`, `scale`, and shape params.
 
         Examples:
-            RainStorm('SCS_I24')
-            RainStorm('G2_Benitez1985')
-            RainStorm('G3_Espildora1979')
-            RainStorm('G4p10_Varas1985')
-            RainStorm('norm', loc=0.5, scale=0.2)
-            RainStorm('gamma', loc=0, scale=0.15, a=2)
+            RainStorm('SCS_I24', timestep=0.5)
+            RainStorm('G2_Benitez1985', timestep=0.5)
+            RainStorm('G3_Espildora1979', timestep=0.5)
+            RainStorm('G4p10_Varas1985', timestep=0.5)
+            RainStorm('norm', timestep=0.5, loc=0.5, scale=0.2)
+            RainStorm('gamma', timestep=0.5, loc=0, scale=0.15, a=2)
         """
+        if timestep <= 0:
+            raise ValueError(f"timestep must be positive, got {timestep}")
 
         self.kind = kind
-        self.timestep = None
+        self.timestep = timestep
         self.duration = None
         self.rainfall = None
-        self.infiltration = None
         self.pr = None
-        self.pr_eff = None
-        self.infr = None
+        self.pr_cum = None
+        self.time = None
 
         if kind in self.PREDEFINED_STORMS:
             self.pr_dimless = self._predefined_hyetograph(kind)
@@ -206,6 +211,9 @@ class RainStorm:
             self.pr_dimless = self._scipy_hyetograph(kind, **kwargs)
         else:
             raise ValueError(f"Unknown storm type: {kind}")
+
+        # Cache cumulative hyetograph
+        self._pr_dimless_cum = self.pr_dimless.cumsum()
 
     def _predefined_hyetograph(self, kind: str) -> pd.Series:
         """
@@ -230,7 +238,7 @@ class RainStorm:
                           ) -> pd.Series:
         """Synthetic hyetograph generator function for any of scipy
         distributions. The synthetic hyetograph will be built with the given
-        loc, scale and scipy default parameters. 
+        loc, scale and scipy default parameters.
 
         Args:
             loc (float, optional): Location parameter for distribution type
@@ -250,21 +258,8 @@ class RainStorm:
         shyeto = distr.pdf(time_dimless, loc=loc, scale=scale, **kwargs)
         shyeto /= np.sum(shyeto)  # Normalize to sum 1
         if flip:
-            shyeto = pd.Series(shyeto[::-1], index=time_dimless)
-        else:
-            shyeto = pd.Series(shyeto, index=time_dimless)
+            shyeto = shyeto[::-1]
         return pd.Series(shyeto, index=time_dimless)
-
-    def __repr__(self) -> str:
-        """
-        What to show when invoking a RainStorm object
-        Returns:
-            str: Some metadata
-        """
-        text = f"RainStorm(kind='{self.kind}', timestep={self.timestep}, "
-        text = text+f"duration={self.duration}, "
-        text = text+f"infiltration='{self.infiltration}')"
-        return text
 
     def copy(self) -> Type['RainStorm']:
         """
@@ -272,239 +267,247 @@ class RainStorm:
         """
         return pycopy.deepcopy(self)
 
-    def compute(self, timestep: int | float, duration: int | float,
-                rainfall: ArrayLike, n: int = 0,
-                interp_kwargs: dict = {'method': 'linear'}
-                ) -> Type['RainStorm']:
+    def _build_inputs(self, duration: ArrayLike, rainfall: ArrayLike,
+                      time_shift: ArrayLike = 0
+                      ) -> tuple[xr.DataArray, xr.DataArray,
+                                 xr.DataArray, float, dict]:
         """
-        Trigger computation of design storm for a given timestep, storm 
-        duration, and total precipitation.
+        Broadcast duration/rainfall/time_shift, validate values,
+        return max total duration and dims.
+        """
+        xr_duration = obj_to_xarray(duration).squeeze()
+        xr_rainfall = obj_to_xarray(rainfall).squeeze()
+        xr_time_shift = obj_to_xarray(time_shift).squeeze()
+
+        # Broadcast all to same shape
+        xr_duration, xr_rainfall = xr.broadcast(xr_duration,
+                                                xr_rainfall)
+        xr_duration, xr_time_shift = xr.broadcast(xr_duration,
+                                                  xr_time_shift)
+
+        # Validate inputs
+        if (xr_duration < 0).any():
+            raise ValueError("duration must be non-negative")
+        if (xr_rainfall < 0).any():
+            raise ValueError("rainfall must be non-negative")
+        if (xr_time_shift < 0).any():
+            raise ValueError("time_shift must be non-negative")
+
+        # Calculate total duration (max duration + max shift)
+        duration_max = float(xr_duration.max())
+        shift_max = float(xr_time_shift.max())
+        total_duration = duration_max + shift_max
+
+        dims = {dim: xr_rainfall[dim].shape[0]
+                for dim in xr_rainfall.dims}
+        return (xr_duration, xr_rainfall, xr_time_shift,
+                total_duration, dims)
+
+    def _apply_idf_scaling(self, xr_duration: xr.DataArray,
+                           xr_rainfall: xr.DataArray,
+                           idf_kwargs: dict) -> xr.DataArray:
+        """
+            Scale rainfall to target durations using duration_coef
+            element-wise.
+        """
+        coef = duration_coef(xr_duration, **idf_kwargs)
+        return xr_rainfall * coef
+
+    def _build_time_axes(self, total_duration: float,
+                         tail_duration: float
+                         ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Build base and extended time arrays covering total duration
+        plus optional tail padding.
 
         Args:
-            timestep (float): Storm timestep or resolution in hours
-            duration (float): Storm duration in hours
-            rainfall (array_like or float): Total precipitation in mm. 
-            n (int, optional): If n=0 the storm time length will be equal to 
-                the user storm duration. If n>0 it will expand the time
-                dimension with zeros n times the user storm duration.
-            interp_kwargs (dict): extra arguments for the interpolation function
+            total_duration: Maximum storm duration + max time shift (hr)
+            tail_duration: Additional time to pad after storm ends (hr)
 
         Returns:
-            Updated class
+            base_time: Time array for storm duration
+            extended_time: Time array including tail padding
         """
-        self.timestep = timestep
+        base_time = np.arange(0, total_duration + self.timestep*1e-3,
+                              self.timestep)
+        extended_time = np.arange(
+            0, total_duration + tail_duration + self.timestep*1e-3,
+            self.timestep
+        )
+        return base_time, extended_time
+
+    def _shift_timeseries_1d(self, cum_series: np.ndarray,
+                             shift_hours: float) -> np.ndarray:
+        """
+        Shift a 1D cumulative time series forward in time by
+        prepending zeros.
+
+        Args:
+            cum_series: 1D array of cumulative precipitation values
+            shift_hours: Hours to shift forward (>= 0)
+
+        Returns:
+            Shifted cumulative series (same length as input)
+        """
+        if shift_hours <= 0:
+            return cum_series
+
+        # Calculate number of time steps to shift
+        shift_steps = int(np.round(shift_hours / self.timestep))
+        n_total = len(cum_series)
+
+        # Prepend zeros and trim to original length
+        shifted = np.concatenate([
+            np.zeros(shift_steps),
+            cum_series
+        ])
+        return shifted[:n_total]
+
+    def _apply_time_shift(self, pr_cum: xr.DataArray,
+                          xr_time_shift: xr.DataArray
+                          ) -> xr.DataArray:
+        """
+        Apply time shift to cumulative precipitation using 1D routine
+        generalized with xr.apply_ufunc.
+
+        Args:
+            pr_cum: Cumulative precipitation with 'time' dimension
+            xr_time_shift: Time shift values (scalar or spatial array)
+
+        Returns:
+            Time-shifted cumulative precipitation
+        """
+        # If all shifts are zero, skip processing
+        if (xr_time_shift == 0).all():
+            return pr_cum
+
+        # Apply 1D shift function across spatial dimensions
+        orig_dims = pr_cum.dims
+        pr_cum_shifted = xr.apply_ufunc(
+            self._shift_timeseries_1d,
+            pr_cum,
+            xr_time_shift,
+            input_core_dims=[['time'], []],
+            output_core_dims=[['time']],
+            vectorize=True,
+        )
+
+        # Restore original dimension order
+        pr_cum_shifted = pr_cum_shifted.transpose(*orig_dims)
+        return pr_cum_shifted
+
+    def _dimensionless_shyeto(self, base_time: np.ndarray,
+                              xr_duration: xr.DataArray,
+                              interp_kwargs: dict) -> xr.DataArray:
+        """
+            Interpolate cached dimensionless cumulative hyetograph over
+            normalized time per cell.
+        """
+        source_cum = xr.DataArray(
+            self._pr_dimless_cum.values,
+            dims=['source_time'],
+            coords={'source_time': self.pr_dimless.index.values}
+        )
+        norm_time = (xr.DataArray(base_time, dims=['time']) /
+                     xr_duration).clip(0, 1)
+        shyeto = source_cum.interp(
+            source_time=norm_time, **interp_kwargs
+        )
+        # Normalize final value to exactly 1.0 to ensure pr_cum matches
+        # rainfall
+        shyeto = shyeto / shyeto.isel(time=-1, drop=False)
+        shyeto = shyeto.assign_coords(time=base_time)
+        shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
+        return shyeto
+
+    def _build_outputs(self, shyeto: xr.DataArray,
+                       xr_rainfall: xr.DataArray,
+                       xr_time_shift: xr.DataArray,
+                       dims: dict, base_time: np.ndarray,
+                       extended_time: np.ndarray
+                       ) -> tuple[xr.DataArray, xr.DataArray]:
+        """
+        Create cumulative and rate precipitation fields, apply time
+        shift, pad zeros beyond each duration.
+        """
+        pr_cum = shyeto * xr_rainfall
+        pr_cum = pr_cum.transpose(*(['time'] + list(dims.keys())))
+
+        # Apply time shift
+        pr_cum = self._apply_time_shift(pr_cum, xr_time_shift)
+
+        pr = (pr_cum.diff('time').reindex({'time': base_time}) /
+              self.timestep)
+        pr = pr.reindex({'time': extended_time}).fillna(0)
+
+        pr.name = 'pr'
+        pr.attrs = {
+            'standard_name': 'precipitation rate',
+            'units': 'mm/hr'
+        }
+
+        pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
+        pr_cum.name = 'pr_cum'
+        pr_cum.attrs = {
+            'standard_name': 'cumulative precipitation',
+            'units': 'mm'
+        }
+        return pr, pr_cum
+
+    def compute(self, duration: int | float | ArrayLike,
+                rainfall: ArrayLike,
+                time_shift: int | float | ArrayLike = 0,
+                tail_duration: float = 0,
+                interp_kwargs: dict = {'method': 'linear'},
+                **idf_kwargs
+                ) -> Type['RainStorm']:
+        """
+        Trigger computation of design storm for a given storm duration
+        and total precipitation.
+
+        Args:
+            duration (float or array_like): Storm duration in hours.
+                Can be scalar or broadcastable to rainfall (e.g.,
+                spatial grid with same dims). Variable durations are
+                supported; the time axis will span the maximum duration
+                and shorter events are zero-padded after their own
+                duration.
+            rainfall (array_like or float): Total precipitation in mm.
+            time_shift (float or array_like, optional): Time delay in
+                hours to shift storm onset. If scalar, shifts all
+                precipitation uniformly. If array_like, allows
+                spatially variable timing (e.g., frontal systems).
+                Default is 0.
+            tail_duration (float, optional): Additional time in hours
+                to extend the time axis after the storm ends. Used to
+                pad with zeros after precipitation. Default is 0.
+            interp_kwargs (dict): extra arguments for interpolation
+            **idf_kwargs: Additional arguments passed to duration_coef
+
+        Returns:
+            Updated class instance with computed storm.
+        """
+        xr_duration, xr_rainfall, xr_time_shift, total_duration, dims = \
+            self._build_inputs(duration, rainfall, time_shift)
+
+        xr_rainfall = self._apply_idf_scaling(xr_duration,
+                                              xr_rainfall,
+                                              idf_kwargs)
+
+        base_time, extended_time = self._build_time_axes(total_duration,
+                                                         tail_duration)
+
+        shyeto = self._dimensionless_shyeto(base_time, xr_duration,
+                                            interp_kwargs)
+
+        pr, pr_cum = self._build_outputs(shyeto, xr_rainfall,
+                                         xr_time_shift, dims,
+                                         base_time, extended_time)
+
+        # Update class attributes
         self.duration = duration
         self.rainfall = rainfall
-
-        xr_rainfall = obj_to_xarray(rainfall).squeeze()
-        dims = {dim: xr_rainfall[dim].shape[0] for dim in xr_rainfall.dims}
-        time1 = np.arange(0, duration+timestep*1e-3, timestep)
-        time2 = np.arange(0, duration+n*duration+timestep*1e-3, timestep)
-
-        # Build dimensionless storm (accumulates 1 mm)
-        shyeto = obj_to_xarray(self.pr_dimless.cumsum(), dims=('time'),
-                               coords={'time': self.pr_dimless.index})
-        shyeto = shyeto.interp(coords={'time': np.linspace(0, 1, len(time1))},
-                               **interp_kwargs)
-        shyeto.coords['time'] = time1
-        shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
-
-        # Build real cumulative precipitation for the given rainfall
-        pr_cum = shyeto.expand_dims(dim=dims)*xr_rainfall
-        pr_cum = pr_cum.transpose(*(['time']+list(dims.keys())))
-
-        # Transform storm time series to a precipitation rate time series
-        pr = pr_cum.diff('time').reindex({'time': time1})/timestep
-        pr = pr.reindex({'time': time2}).fillna(0)
-
-        # Metadata
-        pr.name = 'pr'
-        pr.attrs = {'standard_name': 'precipitation rate', 'units': 'mm/hr'}
         self.pr = pr
         self.pr_cum = pr_cum
         self.time = pr.time.values
-        return self
-
-    def _infiltrate_SCS(self, cn: float, r: float, **kwargs):
-        """
-        Compute infiltration rate using the SCS method.
-
-        Args:
-            cn (array_like or float): Curve Number
-            **kwargs are passed to xr.apply_ufunc
-            r (float): Initial abstraction ratio, default 0.2
-
-        Returns:
-            (array_like): Infiltration rate [mm/h]
-        """
-        # Compute losses
-        pr_cum = self.pr.cumsum('time')*self.timestep  # Accumulate over time
-        infr_cum = xr.apply_ufunc(SCS_Abstractions, pr_cum, cn, r,
-                                  input_core_dims=[['time'], [], []],
-                                  output_core_dims=[['time']],
-                                  vectorize=True,
-                                  **kwargs)
-        # Compute infiltration rate
-        infr = infr_cum.transpose(*self.pr.dims).diff('time')
-        infr = infr.reindex({'time': self.time})/self.timestep
-        infr[0] = infr_cum.isel(time=0)
-        return infr
-
-    def _infiltrate_Horton(self, f0: float, fc: float, k: float, **kwargs):
-        """
-        Compute infiltration rate using 3 parameter Horton's method.
-
-        Args:
-            pr (float|array): precipitation rate (mm/h)
-            duration (float): Time duration of rainfall event (h)
-            f0 (float): Dry or initial soil hydraulic conductivity (mm/h)
-            fc (float): Saturated soil hydraulic conductivity (mm/h)
-            k (float): Horton's method decay coefficient (1/h)
-            **kwargs are passed to xr.apply_ufunc
-
-        Returns:
-            (array_like): Infiltration rate [mm/h]
-        """
-        # Compute losses
-        infr = xr.apply_ufunc(Horton_Abstractions, self.pr, self.time,
-                              f0, fc, k,
-                              input_core_dims=[['time'], ['time'],
-                                               [], [], []],
-                              output_core_dims=[['time']],
-                              vectorize=True, **kwargs)
-        infr = infr.transpose(*self.pr.dims)
-        return infr
-
-    def _infiltrate_Philip(self, S: float, K: float, **kwargs):
-        """
-        Compute infiltration rate using 2 parameter Philip's method.
-
-        Args:
-            pr (float|array): precipitation rate (mm/h)
-            duration (float): Time duration of rainfall event (h)
-            S (float): Adsorption coefficient (mm / h ^ 0.5)
-            K (float): Saturated soil hydraulic conductivity (mm/h)
-            **kwargs are passed to xr.apply_ufunc
-
-        Returns:
-            (array_like): Infiltration rate [mm/h]
-        """
-        # Compute losses
-        infr = xr.apply_ufunc(Philip_Abstractions, self.pr, self.time, S, K,
-                              input_core_dims=[['time'], ['time'],
-                                               [], []],
-                              output_core_dims=[['time']],
-                              vectorize=True, **kwargs)
-        infr = infr.transpose(*self.pr.dims)
-        return infr
-
-    def _infiltrate_GreenAmpt(self, K: float, p: float, theta_s: float,
-                              psi: float, h0: float = 10, **kwargs):
-        """
-        Compute infiltration rate using Green & Ampt soil model.
-
-        Args:
-            K (float): Saturated soil hydraulic conductivity (mm/h)
-            p (float): Soil porosity (-)
-            theta_s (float): Soil fractional moisture (-)
-            psi (float): Soil suction (mm). Highly dependant of soil moisture.
-            h0 (float): water depth above the soil column (mm).
-            Default to 10 mm. 
-            **kwargs are passed to xr.apply_ufunc
-
-        Returns:
-            (array_like): Infiltration rate [mm/h]
-        """
-        # Compute losses
-        infr = xr.apply_ufunc(GreenAmpt_Abstractions, self.pr, self.time,
-                              K, p, theta_s, psi, h0,
-                              input_core_dims=[['time'], ['time'],
-                                               [], [], [], [], []],
-                              output_core_dims=[['time']],
-                              vectorize=True, **kwargs)
-        infr = infr.transpose(*self.pr.dims)
-        return infr
-
-    def infiltrate(self, method: str = 'SCS', **kwargs: Any
-                   ) -> Type['RainStorm']:
-        """
-        Compute losses due to infiltration with different methods for the
-        stored storm Hyetograph
-        Args:
-            method (str, optional): Infiltration routine. Defaults to 'SCS'.
-
-        Returns:
-            Updated class
-        """
-        if self.pr is None:
-            text = "A storm must be computed before infiltration can "
-            text += "be performed. Use the self.compute method."
-            raise ValueError(text)
-
-        self.infiltration = method
-        if method == 'SCS':
-            # Grab curve number from keyword arguments
-            kwargs = kwargs.copy()
-            cn = kwargs['cn']
-            if 'r' in kwargs.keys():
-                r = kwargs['r']
-            else:
-                r = 0.2
-            kwargs.pop('r', None)
-            kwargs.pop('cn', None)
-
-            # Compute losses
-            infr = self._infiltrate_SCS(cn=cn, r=r, **kwargs)
-
-        elif method == 'Horton':
-            # Grab parameters from keyword arguments
-            f0 = kwargs['f0']
-            fc = kwargs['fc']
-            k = kwargs['k']
-            kwargs = kwargs.copy()
-            kwargs.pop('f0', None)
-            kwargs.pop('fc', None)
-            kwargs.pop('k', None)
-            infr = self._infiltrate_Horton(f0=f0, fc=fc, k=k, **kwargs)
-
-        elif method == 'Philip':
-            # Grab parameters from keyword arguments
-            S = kwargs['S']
-            K = kwargs['K']
-            kwargs = kwargs.copy()
-            kwargs.pop('S', None)
-            kwargs.pop('K', None)
-            infr = self._infiltrate_Philip(S=S, K=K, **kwargs)
-
-        elif method == 'GreenAmpt':
-            # Grab parameters from keyword arguments
-            K = kwargs['K']
-            p = kwargs['p']
-            theta_s = kwargs['theta_s']
-            psi = kwargs['psi']
-            if 'h0' in kwargs.keys():
-                h0 = kwargs['h0']
-            else:
-                h0 = 10.
-            kwargs = kwargs.copy()
-            kwargs.pop('K', None)
-            kwargs.pop('p', None)
-            kwargs.pop('theta_s', None)
-            kwargs.pop('psi', None)
-            kwargs.pop('h0', None)
-            infr = self._infiltrate_GreenAmpt(K=K, p=p, theta_s=theta_s,
-                                              psi=psi, h0=h0, **kwargs)
-        else:
-            raise ValueError(f'{method} unknown infiltration method.')
-
-        # Define effective precipitation and update variables
-        pr_eff = self.pr-infr
-        pr_eff = pr_eff.where(pr_eff >= 0).fillna(0)
-
-        # Metadata
-        infr.attrs = {'standard_name': 'infiltration rate', 'units': 'mm/hr'}
-        pr_eff.attrs = {'standard_name': 'effective precipitation rate',
-                        'units': 'mm/hr'}
-        self.infr = infr
-        self.pr_eff = pr_eff
         return self
