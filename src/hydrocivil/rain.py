@@ -235,6 +235,8 @@ class RainStorm:
         self.timestep = timestep
         self.duration = None
         self.rainfall = None
+        self.idf_curve = None
+        self.rdf_curve = None
         self.pr = None
         self.pr_cum = None
         self.time = None
@@ -302,21 +304,28 @@ class RainStorm:
         return pycopy.deepcopy(self)
 
     def _build_inputs(self, duration: ArrayLike, rainfall: ArrayLike,
-                      time_shift: ArrayLike = 0
-                      ) -> tuple[xr.DataArray, xr.DataArray,
-                                 xr.DataArray, float, dict]:
+                      onset_time: ArrayLike = 0,
+                      idf_curve: ArrayLike = None
+                      ) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray,
+                                 xr.DataArray, float]:
         """
-        Broadcast duration/rainfall/time_shift, validate values,
-        return max total duration and dims.
+        Broadcast duration/rainfall/onset_time/idf_curve, validate values,
+        return max total duration.
         """
         xr_duration = obj_to_xarray(duration).squeeze()
-        xr_rainfall = obj_to_xarray(rainfall).squeeze()
-        xr_time_shift = obj_to_xarray(time_shift).squeeze()
+        xr_rainfall = obj_to_xarray(
+            rainfall).squeeze() if rainfall is not None else None
+        xr_onset_time = obj_to_xarray(onset_time).squeeze()
+        xr_idf_curve = obj_to_xarray(
+            idf_curve).squeeze() if idf_curve is not None else None
 
         # Rename generic dimension names to avoid broadcasting conflicts
         for da, prefix in [(xr_duration, 'duration'),
                            (xr_rainfall, 'rainfall'),
-                           (xr_time_shift, 'time_shift')]:
+                           (xr_onset_time, 'onset_time'),
+                           (xr_idf_curve, 'idf_curve')]:
+            if da is None:
+                continue
             if 'dim_' in str(da.dims):
                 new_dims = {dim: f'{prefix}_{i}'
                             for i, dim in enumerate(da.dims)
@@ -327,32 +336,50 @@ class RainStorm:
                     xr_duration = da
                 elif prefix == 'rainfall':
                     xr_rainfall = da
+                elif prefix == 'onset_time':
+                    xr_onset_time = da
                 else:
-                    xr_time_shift = da
+                    xr_idf_curve = da
 
-        # Broadcast all to same shape
-        xr_duration, xr_rainfall = xr.broadcast(xr_duration,
-                                                xr_rainfall)
-        xr_duration, xr_time_shift = xr.broadcast(xr_duration,
-                                                  xr_time_shift)
+        # Broadcast to same shape, avoiding idf_curve's 'duration' dim
+        if xr_idf_curve is not None and 'duration' in xr_idf_curve.dims:
+            # Broadcast xr_duration against idf_curve's other dims
+            # (excluding curve)
+            idf_other_dims = xr_idf_curve
+            # Create a view with other dims only by taking a single
+            # slice along the curve dimension; this preserves other dims
+            # for broadcast
+            idf_other_dims = idf_other_dims.isel(
+                duration=0, drop=True)
+            xr_duration, _ = xr.broadcast(xr_duration, idf_other_dims)
+            xr_duration, xr_onset_time = xr.broadcast(xr_duration,
+                                                      xr_onset_time)
+        elif xr_rainfall is not None:
+            xr_duration, xr_rainfall = xr.broadcast(xr_duration,
+                                                    xr_rainfall)
+            xr_duration, xr_onset_time = xr.broadcast(xr_duration,
+                                                      xr_onset_time)
+        else:
+            xr_duration, xr_onset_time = xr.broadcast(xr_duration,
+                                                      xr_onset_time)
 
         # Validate inputs
         if (xr_duration < 0).any():
             raise ValueError("duration must be non-negative")
-        if (xr_rainfall < 0).any():
+        if xr_rainfall is not None and (xr_rainfall < 0).any():
             raise ValueError("rainfall must be non-negative")
-        if (xr_time_shift < 0).any():
-            raise ValueError("time_shift must be non-negative")
+        if xr_idf_curve is not None and (xr_idf_curve < 0).any():
+            raise ValueError("idf_curve must be non-negative")
+        if (xr_onset_time < 0).any():
+            raise ValueError("onset_time must be non-negative")
 
         # Calculate total duration (max duration + max shift)
         duration_max = float(xr_duration.max())
-        shift_max = float(xr_time_shift.max())
+        shift_max = float(xr_onset_time.max())
         total_duration = duration_max + shift_max
 
-        dims = {dim: xr_rainfall[dim].shape[0]
-                for dim in xr_rainfall.dims}
-        return (xr_duration, xr_rainfall, xr_time_shift,
-                total_duration, dims)
+        return (xr_duration, xr_rainfall, xr_onset_time,
+                xr_idf_curve, total_duration)
 
     def _apply_idf_scaling(self, xr_duration: xr.DataArray,
                            xr_rainfall: xr.DataArray,
@@ -363,6 +390,60 @@ class RainStorm:
         """
         coef = duration_coef(xr_duration, **idf_kwargs)
         return xr_rainfall * coef
+
+    def _evaluate_idf_and_build_rdf(self,
+                                    xr_idf_curve: xr.DataArray,
+                                    xr_duration: xr.DataArray,
+                                    interp_kwargs: dict
+                                    ) -> tuple[xr.DataArray, xr.DataArray]:
+        """
+        Evaluate an intensity-duration curve and convert to rainfall.
+
+        Takes IDF (intensity in mm/hr) and converts to RDF (rainfall in mm)
+        by multiplying by duration: rainfall = intensity * duration.
+        Returns both the stored IDF curve and computed RDF curve.
+
+        Args:
+            xr_idf_curve: Intensity-duration curve with 'duration' coordinate
+            xr_duration: Target durations for evaluation
+            interp_kwargs: Interpolation keyword arguments
+
+        Returns:
+            Tuple of (idf_curve_stored, rdf_curve_computed)
+        """
+        if 'duration' not in xr_idf_curve.dims:
+            raise ValueError("idf_curve must have a 'duration' dimension to "
+                             "be evaluated as a curve")
+
+        # Ensure monotonic increasing duration coordinate
+        dur_series = xr_idf_curve['duration'].to_series()
+        if not dur_series.is_monotonic_increasing:
+            xr_idf_curve = xr_idf_curve.sortby('duration')
+
+        # Validate that target durations are within curve bounds
+        dmin = float(xr_idf_curve['duration'].min())
+        dmax = float(xr_idf_curve['duration'].max())
+
+        # Check if any requested duration is outside bounds
+        if (xr_duration < dmin).any() or (xr_duration > dmax).any():
+            raise ValueError(
+                f"Cannot compute storm for durations outside IDF curve bounds. "
+                f"IDF curve supports durations: [{dmin}, {dmax}] hr. "
+                f"Requested durations: min={float(xr_duration.min())}, "
+                f"max={float(xr_duration.max())} hr."
+            )
+
+        target_duration = xr_duration
+
+        # Evaluate IDF at target durations
+        xr_intensity = xr_idf_curve.interp(duration=target_duration,
+                                           **interp_kwargs)
+        # Convert intensity to rainfall: rain = intensity * duration
+        xr_rdf = xr_intensity * target_duration
+        # Ensure rainfall is 0 at duration 0 (physically correct)
+        xr_rdf = xr_rdf.where(target_duration > 0, 0)
+
+        return xr_idf_curve, xr_rdf
 
     def _build_time_axes(self, total_duration: float,
                          tail_duration: float
@@ -414,22 +495,22 @@ class RainStorm:
         ])
         return shifted[:n_total]
 
-    def _apply_time_shift(self, pr_cum: xr.DataArray,
-                          xr_time_shift: xr.DataArray
+    def _apply_onset_time(self, pr_cum: xr.DataArray,
+                          xr_onset_time: xr.DataArray
                           ) -> xr.DataArray:
         """
-        Apply time shift to cumulative precipitation using 1D routine
+        Apply onset time to cumulative precipitation using 1D routine
         generalized with xr.apply_ufunc.
 
         Args:
             pr_cum: Cumulative precipitation with 'time' dimension
-            xr_time_shift: Time shift values (scalar or spatial array)
+            xr_onset_time: Onset time values (scalar or spatial array)
 
         Returns:
-            Time-shifted cumulative precipitation
+            Onset-time-shifted cumulative precipitation
         """
         # If all shifts are zero, skip processing
-        if (xr_time_shift == 0).all():
+        if (xr_onset_time == 0).all():
             return pr_cum
 
         # Apply 1D shift function across spatial dimensions
@@ -437,7 +518,7 @@ class RainStorm:
         pr_cum_shifted = xr.apply_ufunc(
             self._shift_timeseries_1d,
             pr_cum,
-            xr_time_shift,
+            xr_onset_time,
             input_core_dims=[['time'], []],
             output_core_dims=[['time']],
             vectorize=True,
@@ -471,8 +552,8 @@ class RainStorm:
 
     def _build_outputs(self, shyeto: xr.DataArray,
                        xr_rainfall: xr.DataArray,
-                       xr_time_shift: xr.DataArray,
-                       dims: dict, base_time: np.ndarray,
+                       xr_onset_time: xr.DataArray,
+                       base_time: np.ndarray,
                        extended_time: np.ndarray
                        ) -> tuple[xr.DataArray, xr.DataArray]:
         """
@@ -480,10 +561,13 @@ class RainStorm:
         shift, pad zeros beyond each duration.
         """
         pr_cum = shyeto * xr_rainfall
-        pr_cum = pr_cum.transpose(*(['time'] + list(dims.keys())))
+        # Ensure 'time' is the leading dimension regardless of how
+        # inputs broadcast
+        other_dims = [d for d in pr_cum.dims if d != 'time']
+        pr_cum = pr_cum.transpose(*(['time'] + other_dims))
 
-        # Apply time shift
-        pr_cum = self._apply_time_shift(pr_cum, xr_time_shift)
+        # Apply onset time
+        pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
 
         pr = (pr_cum.diff('time').reindex({'time': base_time}) /
               self.timestep)
@@ -504,9 +588,11 @@ class RainStorm:
         return pr, pr_cum
 
     def compute(self, duration: int | float | ArrayLike,
-                rainfall: ArrayLike,
-                time_shift: int | float | ArrayLike = 0,
+                rainfall: ArrayLike = None,
+                onset_time: int | float | ArrayLike = 0,
                 tail_duration: float = 0,
+                idf_scaling: bool = False,
+                idf_curve: ArrayLike = None,
                 interp_kwargs: dict = {'method': 'linear'},
                 **idf_kwargs
                 ) -> Type['RainStorm']:
@@ -516,20 +602,32 @@ class RainStorm:
 
         Args:
             duration (float or array_like): Storm duration in hours.
-                Can be scalar or broadcastable to rainfall (e.g.,
-                spatial grid with same dims). Variable durations are
-                supported; the time axis will span the maximum duration
-                and shorter events are zero-padded after their own
-                duration.
-            rainfall (array_like or float): Total precipitation in mm.
-            time_shift (float or array_like, optional): Time delay in
-                hours to shift storm onset. If scalar, shifts all
-                precipitation uniformly. If array_like, allows
-                spatially variable timing (e.g., frontal systems).
-                Default is 0.
-            tail_duration (float, optional): Additional time in hours
-                to extend the time axis after the storm ends. Used to
-                pad with zeros after precipitation. Default is 0.
+                Can be scalar or broadcastable to rainfall/idf_curve (e.g.,
+                spatial grid with same dims).
+            rainfall (array_like or float, optional): Total precipitation
+                amount in mm. If provided as a scalar/array and
+                `idf_scaling=False` (default), the same total rainfall is
+                used for all target durations. If `idf_scaling=True`, IDF
+                scaling is applied via duration coefficients so the total
+                rainfall changes with the target durations. Cannot be used
+                together with `idf_curve`.
+            onset_time (float or array_like, optional): Time delay in hours for
+                storm onset. If scalar, shifts all precipitation uniformly.
+                If array_like, allows spatially variable timing. Default is 0.
+            tail_duration (float, optional): Additional time in hours to extend
+                the time axis after the storm ends. Used to pad with zeros after
+                precipitation. Default is 0.
+            idf_scaling (bool, optional): Whether to apply IDF scaling when
+                using `rainfall` parameter. Defaults to False. Ignored if
+                `idf_curve` is provided.
+            idf_curve (array_like or xarray.DataArray, optional):
+                Intensity-duration curve with a 'duration' coordinate
+                representing intensity (mm/hr) for each duration (hr).
+                When provided, the curve is internally converted to a
+                rainfall-duration curve and evaluated at target durations.
+                `rainfall` and `idf_scaling` are ignored. Can have additional
+                dims (e.g., 'return_period', spatial dims). Both idf_curve
+                and rdf_curve are stored as class attributes.
             interp_kwargs (dict): extra arguments for interpolation
             **idf_kwargs: Additional arguments passed to duration_coef
                 or other storm-specific parameters.
@@ -537,12 +635,102 @@ class RainStorm:
         Returns:
             Updated class instance with computed storm.
         """
-        xr_duration, xr_rainfall, xr_time_shift, total_duration, dims = \
-            self._build_inputs(duration, rainfall, time_shift)
+        # Validate that only one of rainfall or idf_curve is provided
+        if rainfall is not None and idf_curve is not None:
+            raise ValueError(
+                "Cannot specify both 'rainfall' and 'idf_curve'. "
+                "Use 'rainfall' for constant amounts or 'idf_curve' "
+                "for intensity-duration curves."
+            )
+        if rainfall is None and idf_curve is None:
+            raise ValueError(
+                "Must specify either 'rainfall' or 'idf_curve'."
+            )
 
-        xr_rainfall = self._apply_idf_scaling(xr_duration,
-                                              xr_rainfall,
-                                              idf_kwargs)
+        (xr_duration, xr_rainfall, xr_onset_time, xr_idf_curve,
+         total_duration) = self._build_inputs(
+            duration, rainfall, onset_time, idf_curve
+        )
+
+        # Decide path: evaluate IDF curve vs duration or use rainfall
+        if xr_idf_curve is not None:
+            # Convert IDF to RDF and return both
+            self.idf_curve, xr_rainfall = (
+                self._evaluate_idf_and_build_rdf(
+                    xr_idf_curve=xr_idf_curve,
+                    xr_duration=xr_duration,
+                    interp_kwargs=interp_kwargs
+                )
+            )
+        else:
+            # Using rainfall parameter - build RDF curve
+            durations_rdf = np.arange(0, 72 + self.timestep,
+                                      self.timestep)
+            # Extract scalar value if rainfall is 0-D
+            rainfall_base = (float(xr_rainfall) if xr_rainfall.ndim == 0
+                             else xr_rainfall)
+
+            if idf_scaling:
+                # Build RDF curve with duration coefficients
+                coef_values = duration_coef(durations_rdf, **idf_kwargs)
+                if isinstance(rainfall_base, (float, int)):
+                    rainfall_rdf = rainfall_base * coef_values
+                    xr_rdf_curve = xr.DataArray(
+                        rainfall_rdf,
+                        dims=['duration'],
+                        coords={'duration': durations_rdf}
+                    )
+                else:
+                    # rainfall_base is array-like with spatial dims
+                    coef_da = xr.DataArray(
+                        coef_values,
+                        dims=['duration'],
+                        coords={'duration': durations_rdf}
+                    )
+                    xr_rdf_curve = rainfall_base * coef_da
+                xr_rainfall = self._apply_idf_scaling(xr_duration,
+                                                      xr_rainfall,
+                                                      idf_kwargs)
+            else:
+                # Build RDF curve with constant rainfall
+                if isinstance(rainfall_base, (float, int)):
+                    rainfall_rdf = rainfall_base * np.ones_like(
+                        durations_rdf
+                    )
+                    xr_rdf_curve = xr.DataArray(
+                        rainfall_rdf,
+                        dims=['duration'],
+                        coords={'duration': durations_rdf}
+                    )
+                else:
+                    # rainfall_base is array-like with spatial dims
+                    ones_da = xr.DataArray(
+                        np.ones_like(durations_rdf),
+                        dims=['duration'],
+                        coords={'duration': durations_rdf}
+                    )
+                    xr_rdf_curve = rainfall_base * ones_da
+            # Ensure rainfall is 0 at duration 0 (physically correct)
+            xr_rdf_curve.loc[{'duration': 0}] = 0
+            xr_rdf_curve.name = 'rainfall'
+            xr_rdf_curve.attrs = {
+                'standard_name': 'total_rainfall_vs_duration',
+                'units': 'mm'
+            }
+            self.rdf_curve = xr_rdf_curve
+
+            # Also compute and store corresponding IDF curve
+            # IDF = RDF / duration (intensity = rainfall / duration)
+            xr_idf_curve = xr_rdf_curve / durations_rdf
+            # Ensure intensity is inf at duration 0 (rainfall/0 = inf)
+            xr_idf_curve = xr_idf_curve.where(
+                durations_rdf > 0, np.inf)
+            xr_idf_curve.name = 'intensity'
+            xr_idf_curve.attrs = {
+                'standard_name': 'intensity_vs_duration',
+                'units': 'mm/hr'
+            }
+            self.idf_curve = xr_idf_curve
 
         base_time, extended_time = self._build_time_axes(total_duration,
                                                          tail_duration)
@@ -551,7 +739,7 @@ class RainStorm:
                                             interp_kwargs)
 
         pr, pr_cum = self._build_outputs(shyeto, xr_rainfall,
-                                         xr_time_shift, dims,
+                                         xr_onset_time,
                                          base_time, extended_time)
 
         # Update class attributes
