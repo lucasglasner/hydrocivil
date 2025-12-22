@@ -162,7 +162,7 @@ def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
     return polygons
 
 
-def obj_to_xarray(obj: ArrayLike, **kwargs: Any) -> xr.DataArray | xr.Dataset:
+def obj2xarray(obj: ArrayLike, **kwargs: Any) -> xr.DataArray | xr.Dataset:
     """
     This function recieves an object and transform it to an xarray object.
     Only accepts pandas series, dataframes, numpy arrays, lists, tuples, or
@@ -187,16 +187,16 @@ def obj_to_xarray(obj: ArrayLike, **kwargs: Any) -> xr.DataArray | xr.Dataset:
     elif isinstance(obj, pd.DataFrame):
         return obj.stack().to_xarray()
     elif isinstance(obj, list) or isinstance(obj, tuple):
-        return obj_to_xarray(np.array(obj), **kwargs)
+        return obj2xarray(np.array(obj), **kwargs)
     elif isinstance(obj, int) or isinstance(obj, float):
-        return obj_to_xarray(np.array([obj]), **kwargs)
+        return obj2xarray(np.array([obj]), **kwargs)
     elif isinstance(obj, xr.DataArray) or isinstance(obj, xr.Dataset):
         new_xarray = obj
     else:
         text = 'Only ints, floats, lists, tuples, pandas, numpy or'
         text = text + f'xarray objects can be used. Got {type(obj)} instead.'
         raise RuntimeError(text)
-    return new_xarray
+    return new_xarray.squeeze()
 
 
 def xarray2gdal(da: xr.DataArray) -> gdal.Dataset:
@@ -449,6 +449,25 @@ def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
         raise RuntimeError(text)
 
 # ----------------------------------- other ---------------------------------- #
+
+
+def rsquared(y_true, y_pred):
+    """
+    Calculate the R-squared (coefficient of determination) metric.
+    R-squared measures the proportion of variance in the dependent variable
+    that is predictable from the independent variable(s).
+
+    Args:
+        y_true (array-like): Actual/true values.
+        y_pred (array-like): Predicted values.
+
+    Returns:
+        float: R-squared value ranging from 0 to 1 (or negative for poor fits).
+    """
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    r2 = 1 - (ss_res / ss_tot)
+    return r2
 
 
 def series2func(series: pd.Series, **kwargs) -> interp1d:
