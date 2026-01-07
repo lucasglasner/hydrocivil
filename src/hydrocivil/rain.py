@@ -34,8 +34,8 @@ def grunsky_coef(storm_duration: float | ArrayLike,
 
     Where "t" is the storm duration of interest in hours, and "b" is an
     empirical parameter. The traditional Grunsky formula assumes b = 0.5,
-    which is generally valid for cyclonic precipitation on flat terrain.
-    However, for convective rainfall or rainfall on complex terrain, a
+    which is generally valid for cyclonic precipitation on flat terrain24.
+    However, for convective rainfall or rainfall on complex terrain24, a
     different power-law may apply (or may not).
 
     References:
@@ -83,6 +83,15 @@ def bell_coef(storm_duration: float | ArrayLike,
     return a * cd1
 
 
+def validate_duration(storm_duration: float | ArrayLike) -> None:
+    """
+    Validate storm duration input.
+    """
+    durations = np.asarray(storm_duration, dtype=float)
+    if np.any(durations < 0):
+        raise ValueError("Storm duration must be positive.")
+
+
 def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
                   expon: float = 0.5, bell_threshold: int | float = 1,
                   **kwargs) -> float:
@@ -116,6 +125,9 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
     Returns:
         np.ndarray: Duration coefficient(s) (dimensionless).
     """
+    validate_duration(storm_duration)
+    validate_duration(bell_threshold)
+
     durations = np.asarray(storm_duration, dtype=float)
     scalar_input = durations.ndim == 0
     durations = np.atleast_1d(durations)
@@ -201,86 +213,78 @@ def alternating_block_sort(arr: ArrayLike, axis=0):
 
 
 class IDF:
+    """
+    General Intensity-Duration-Frequency (IDF) relationship handler.
+    """
+
     def __init__(self,
                  timestep: float,
-                 rain: ArrayLike = None,
+                 rain24: ArrayLike = None,
                  idf: ArrayLike = None,
-                 bell_threshold: float = 1,
-                 model_type: int = 2,
-                 duration_limits: ArrayLike = (0, 72),
-                 **kwargs) -> None:
+                 duration_limits: ArrayLike = (0, 72)) -> None:
         """
         Intensity-Duration-Frequency (IDF) relationship handler.
 
         Args:
             timestep (float): Time step or resolution in hours.
-            rain (ArrayLike, optional): Rainfall amount(s) in mm per 24 hours.
+            rain24 (ArrayLike, optional): Rainfall amount(s) in mm per 24 hours.
             idf (ArrayLike, optional): IDF curve as an array with an
                 identifiable 'duration' dimension. If None, IDF will be computed
                 from rainfall using duration_coef. Defaults to None.
-            bell_threshold (int, float): Duration threshold [hr] below which
-                Bell's formula is applied. Default is 1 hr.
-                Force to 0 to disable.
-            model_type (int, optional): Type of parametric model to fit.
-                Options:
-                    1: Type I power law: i(t) = a / t^b
-                    2: Type II power law: i(t) = a / (t^b + c)
-                    3: Type III power law: i(t) = a / (t + c)^b
-                Defaults to 2.
             duration_limits (ArrayLike, optional): Min and max duration limits
                 in hours for the IDF curve. Defaults to (0, 72).
-            **kwargs: Additional keyword arguments for
-                duration_coef if rain is provided.
         """
         # Validate inputs
-        self._validate_inputs(timestep, rain, idf, model_type, duration_limits)
-        if rain is None and idf is not None:
-            self.computation_path = 'from_idf'
-        else:
-            self.computation_path = 'from_rain'
+        self._validate_inputs(timestep, rain24, idf, duration_limits)
 
-        # Convert rain and idf to xarray DataArrays
-        xr_rain = obj2xarray(rain, name='rain') if rain is not None else None
-        xr_idf = obj2xarray(idf, name='idf') if idf is not None else None
+        # Convert rain24 and idf to xarray DataArrays
+        xr_rain24 = obj2xarray(
+            rain24, name='rain24') if rain24 is not None else None
+        xr_idf = obj2xarray(
+            idf, name='idf') if idf is not None else None
+
+        if rain24 is None and idf is not None:
+            self.idf_computation_path = 'idf-from-sample'
+            xr_idf = self._validate_idf_curve(xr_idf)
+        else:
+            self.idf_computation_path = 'idf-from-rain24'
 
         # Store input arguments
         self.timestep = timestep
-        self.rain = xr_rain
+        self.rain24 = xr_rain24
         self.idf = None
         self.rdf = None
         self.dcoefs = None
-        self.model_type = model_type
         self.duration_limits = duration_limits
-        self.kwargs = kwargs
-        self.bell_threshold = bell_threshold
 
         # Build aditional attributes
         self.durations = self._build_duration_axis()
         self.idf_sampled = xr_idf
         self.rdf_sampled = None
         self.dcoefs_sampled = None
-        self.rsquared = None
+        self.rsquared_ = None
         self.fitcoefs_ = None
+        self.parametric_ = None
+        self.idf_model_type_ = None
+        self.bell_threshold_ = None
 
     # -------------------------------- Validations --------------------------- #
 
     def _validate_inputs(self,
                          timestep: float,
-                         rain: ArrayLike,
+                         rain24: ArrayLike,
                          idf: ArrayLike,
-                         model_type: int,
                          duration_limits: ArrayLike):
         """
         Validate input parameters for IDF class.
         """
-        if (rain is not None) == (idf is not None):
-            raise ValueError("Must specify exactly one of 'rain' or 'idf'")
+        if (rain24 is not None) == (idf is not None):
+            raise ValueError("Must specify exactly one of 'rain24' or 'idf'")
+
+        validate_duration(duration_limits)
 
         if timestep <= 0:
             raise ValueError(f"timestep must be positive, got {timestep}")
-
-        if model_type not in [1, 2, 3]:
-            raise ValueError("model_type must be 1, 2, or 3")
 
         if np.array(duration_limits).ndim != 1 or len(duration_limits) != 2:
             raise ValueError("duration_limits must be a 1D array of length 2")
@@ -305,7 +309,7 @@ class IDF:
     def _idf2rdf(self, xr_idf: xr.DataArray) -> xr.DataArray:
         """Convert IDF to RDF curve."""
         xr_rdf = xr_idf * xr_idf['duration']
-        xr_rdf.name = 'rain'
+        xr_rdf.name = 'rainfall'
         xr_rdf.attrs = {'standard_name': 'total_rainfall_vs_duration',
                         'units': 'mm'}
         return xr_rdf
@@ -350,30 +354,30 @@ class IDF:
     # ----------------------------- Parametric Models ------------------------ #
 
     @staticmethod
-    def _powerlaw_type1(t, b, rain24):
+    def _powerlaw_type1(t, b, rain_24):
         """
-        Type I power law model with constraint i(24) = rain24/24
-        i(t) = a / t^b, where a = rain24 * 24^(b-1)
+        Type I power law model with constrain24t i(24) = rain_24/24
+        i(t) = a / t^b, where a = rain_24 * 24^(b-1)
         """
-        a = rain24 * (24 ** (b - 1))
+        a = rain_24 * (24 ** (b - 1))
         return a / (t ** b)
 
     @staticmethod
-    def _powerlaw_type2(t, b, c, rain24):
+    def _powerlaw_type2(t, b, c, rain_24):
         """
-        Type II power law model with constraint i(24) = rain24/24
-        i(t) = a / (t^b + c), where a = rain24 * (24^b + c) / 24
+        Type II power law model with constrain24t i(24) = rain_24/24
+        i(t) = a / (t^b + c), where a = rain_24 * (24^b + c) / 24
         """
-        a = rain24 * (24 ** b + c) / 24
+        a = rain_24 * (24 ** b + c) / 24
         return a / (t ** b + c)
 
     @staticmethod
-    def _powerlaw_type3(t, b, c, rain24):
+    def _powerlaw_type3(t, b, c, rain_24):
         """
-        Type III power law model with constraint i(24) = rain24/24
-        i(t) = a / (t + c)^b, where a = rain24 * (24 + c)^b / 24
+        Type III power law model with constrain24t i(24) = rain_24/24
+        i(t) = a / (t + c)^b, where a = rain_24 * (24 + c)^b / 24
         """
-        a = rain24 * ((24 + c) ** b) / 24
+        a = rain_24 * ((24 + c) ** b) / 24
         return a / ((t + c) ** b)
 
     # ----------------------------------- Core ------------------------------- #
@@ -388,7 +392,8 @@ class IDF:
         durations = xr.DataArray(durations, dims=['duration'])
         return durations
 
-    def _sample_idf_curve(self, durations: ArrayLike = None) -> xr.DataArray:
+    def _sample_idf_curve(self, durations: ArrayLike = None,
+                          **kwargs) -> xr.DataArray:
         """
         Build the IDF and RDF curve based on rain and duration coeficients
         """
@@ -396,14 +401,14 @@ class IDF:
         if durations is None:
             durations = DURCOEFS_PGAUGES.index.values
         durations = xr.DataArray(durations, dims=['duration'])
-        cds = duration_coef(durations, **self.kwargs)
+        cds = duration_coef(durations, **kwargs)
         cds = xr.DataArray(cds, dims=['duration'], name='cds',
                            coords={'duration': durations})
-        rdf = self.rain.expand_dims({'duration': durations}, axis=0) * cds
+        rdf = self.rain24.expand_dims({'duration': durations}, axis=0) * cds
         idf = rdf / rdf['duration']
 
         # Name and attrs
-        rdf.name = 'rain'
+        rdf.name = 'rainfall'
         rdf.attrs = {'standard_name': 'total_rainfall_vs_duration',
                      'units': 'mm'}
 
@@ -416,12 +421,12 @@ class IDF:
         self.dcoefs_sampled = self._rdf2dcoef(rdf)
         return idf, rdf
 
-    def _fit_parametric_model(self, **kwargs):
+    def _fit_parametric_model(self, idf_model_type: int, **kwargs):
         """
         Fit a parametric IDF model to the sampled IDF curve and store the
         fit coefficients and R-squared value.
 
-        The fit enforces the constraint i(24) = rain/24, reducing the number
+        The fit enforces the constraint i(24) = rain24/24, reducing the number
         of free parameters by one.
         """
         func_map = {
@@ -430,29 +435,30 @@ class IDF:
             3: (self._powerlaw_type3, [[], [], []])   # b, c parameters + r2
         }
 
-        func, output_dims = func_map[self.model_type]
+        func, output_dims = func_map[idf_model_type]
 
-        def _func2fit(i, t, rain24, **kwargs):
+        def _func2fit(i, t, rain_24, **kwargs):
             # Create wrapper with explicit parameters based on model type
-            if self.model_type == 1:
+            if idf_model_type == 1:
                 # Type I: only b parameter
-                def func_with_rain24(t_fit, b): return func(t_fit, b, rain24)
+                def func_with_rain_24(
+                    t_fit, b): return func(t_fit, b, rain_24)
             else:
                 # Type II and III: b, c parameters
-                def func_with_rain24(t_fit, b, c): return func(
-                    t_fit, b, c, rain24)
+                def func_with_rain_24(t_fit, b, c): return func(
+                    t_fit, b, c, rain_24)
 
-            popt, _ = curve_fit(func_with_rain24, t, i,
+            popt, _ = curve_fit(func_with_rain_24, t, i,
                                 bounds=(0, np.inf), **kwargs)
-            return (*popt, rsquared(i, func(t, *popt, rain24)))
+            return (*popt, rsquared(i, func(t, *popt, rain_24)))
 
-        # Get rain at 24 hours
-        rain24 = self.idf_sampled.interp(duration=24) * 24
+        # Get rain24 at 24 hours
+        rain_24 = self.idf_sampled.interp(duration=24) * 24
 
         output = xr.apply_ufunc(_func2fit,
                                 self.idf_sampled,
                                 self.idf_sampled['duration'],
-                                rain24,
+                                rain_24,
                                 input_core_dims=[
                                     ['duration'], ['duration'], []],
                                 output_core_dims=output_dims,
@@ -460,21 +466,22 @@ class IDF:
                                 kwargs=kwargs)
         popt = output[:-1]
         r2 = output[-1]
-        self.rsquared = r2
+        self.rsquared_ = r2
         self.fitcoefs_ = popt
         return popt, r2
 
-    def _force_bell_threshold(self, idf: xr.DataArray) -> xr.DataArray:
+    def _force_bell_threshold(self, idf: xr.DataArray,
+                              bell_threshold: float) -> xr.DataArray:
         """
         Force Bell threshold application on the IDF curve.
         """
-        if self.bell_threshold <= 0:
+        if bell_threshold == 0:
             return idf
         name, attrs = idf.name, idf.attrs
         rdf = self._idf2rdf(idf)
         dcoef = self._rdf2dcoef(rdf)
 
-        bell_mask = idf['duration'] < self.bell_threshold
+        bell_mask = idf['duration'] < bell_threshold
         if bell_mask.any():
             t, cd1 = xr.broadcast(idf['duration'][bell_mask],
                                   dcoef.interp(duration=1))
@@ -485,13 +492,13 @@ class IDF:
             idf.attrs = attrs
         return idf
 
-    def _evaluate_parametric_model(self, durations: ArrayLike, model_type: int
-                                   ) -> xr.DataArray:
+    def _evaluate_parametric_model(self, durations: ArrayLike,
+                                   idf_model_type: int) -> xr.DataArray:
         """
         Evaluate the fitted parametric model at given durations.
         """
         durations = xr.DataArray(durations, dims=['duration'])
-        if self.fitcoefs_ is None and self.rsquared is None:
+        if self.fitcoefs_ is None and self.rsquared_ is None:
             raise ValueError("Model must be fitted before evaluation.")
 
         model_map = {
@@ -500,13 +507,13 @@ class IDF:
             3: self._powerlaw_type3
         }
 
-        model = model_map[model_type]
+        model = model_map[idf_model_type]
 
-        # Get rain for a 24 hour storm
-        rain24 = self.idf_sampled.interp(duration=24) * 24
+        # Get rain24 for a 24 hour storm
+        rain_24 = self.idf_sampled.interp(duration=24) * 24
 
-        # Evaluate model with rain24 constraint
-        idf = model(durations, *self.fitcoefs_, rain24)
+        # Evaluate model with rain_24 constrain24t
+        idf = model(durations, *self.fitcoefs_, rain_24)
         idf = idf.assign_coords({'duration': durations})
         idf = idf.transpose(*self.idf_sampled.dims)
         idf.name = 'intensity'
@@ -514,7 +521,8 @@ class IDF:
                      'units': 'mm/hr'}
         return idf
 
-    def fit(self, parametric=False) -> Type['IDF']:
+    def fit(self, parametric=True, idf_model_type: int = 2,
+            bell_threshold: float = 1, **kwargs) -> Type['IDF']:
         """
         Fit the Intensity-Duration curve using the specified computation path.
         This method fits an IDF curve based on either rainfall data or existing
@@ -525,43 +533,63 @@ class IDF:
         Args:
             parametric (bool): If True, fits a parametric model to the IDF
                 curve. If False, interpolate/extrapolate the sampled IDF curve
-                directly. Defaults to False.
+                directly. Defaults to True.
+            idf_model_type (int, optional): Type of parametric model to fit.
+                Options:
+                    1: Type I power law: i(t) = a / t^b
+                    2: Type II power law: i(t) = a / (t^b + c)
+                    3: Type III power law: i(t) = a / (t + c)^b
+                Defaults to 2.
+            bell_threshold (int, float): Duration threshold [hr] below which
+                Bell's formula is applied. Default is 1 hr. Force to 0 to
+                disable.
+            **kwargs: Additional keyword arguments for duration_coef if rain24
+                is provided (e.g., ref_pgauge, expon, etc.).
 
         Returns:
             IDF: The instance itself with updated attributes.
         Raises:
             AttributeError: If required attributes for the specified
-                computation_path are not properly initialized in the class
+                idf_computation_path are not properly initialized in the class
                 constructor.
         """
-        if self.computation_path == 'from_rain':
-            kwargs = self.kwargs.copy()
+        # Validate idf_model_type
+        if idf_model_type not in [1, 2, 3]:
+            raise ValueError("idf_model_type must be 1, 2, or 3")
+
+        # Store input parameters for futher reference
+        self.parametric_ = parametric
+        self.idf_model_type_ = idf_model_type
+        self.bell_threshold_ = bell_threshold
+
+        if self.idf_computation_path == 'idf-from-rain24':
             if 'ref_pgauge' in kwargs and kwargs['ref_pgauge'] != 'Grunsky':
                 if parametric:
-                    self._sample_idf_curve()
-                    self._fit_parametric_model()
+                    self._sample_idf_curve(**kwargs)
+                    self._fit_parametric_model(idf_model_type)
                     idf = self._evaluate_parametric_model(self.durations,
-                                                          self.model_type)
+                                                          idf_model_type)
                 else:
-                    self._sample_idf_curve(self.durations)
+                    self._sample_idf_curve(self.durations, **kwargs)
                     idf = self.idf_sampled
-                idf = self._force_bell_threshold(idf)
+                idf = self._force_bell_threshold(idf, bell_threshold)
                 self.idf = idf
                 self.rdf = self._idf2rdf(self.idf)
                 self.dcoefs = self._idf2dcoef(self.idf)
             else:
-                self._sample_idf_curve(self.durations)
+                self._sample_idf_curve(self.durations,
+                                       bell_threshold=bell_threshold, **kwargs)
                 self.idf = self.idf_sampled
                 self.rdf = self.rdf_sampled
                 self.dcoefs = self.dcoefs_sampled
 
-        if self.computation_path == 'from_idf':
+        if self.idf_computation_path == 'idf-from-sample':
             self.rdf_sampled = self._idf2rdf(self.idf_sampled)
             self.dcoefs_sampled = self._idf2dcoef(self.idf_sampled)
             if parametric:
-                self._fit_parametric_model()
+                self._fit_parametric_model(idf_model_type)
                 idf = self._evaluate_parametric_model(self.durations,
-                                                      self.model_type)
+                                                      idf_model_type)
             else:
                 # Check if extrapolation is needed
                 sampled_max = float(self.idf_sampled['duration'].max())
@@ -578,7 +606,7 @@ class IDF:
                 idf = self.idf_sampled.interp(
                     duration=self.durations,
                     kwargs={"fill_value": "extrapolate"})
-            idf = self._force_bell_threshold(idf)
+            idf = self._force_bell_threshold(idf, bell_threshold)
             self.idf = idf
             self.rdf = self._idf2rdf(self.idf)
             self.dcoefs = self._idf2dcoef(self.idf)
@@ -587,294 +615,357 @@ class IDF:
         return self
 
 
-class RainStorm:
-    pass
+class RainStorm(IDF):
+    """
+    Generic class to build rainstorms that follow any of scipy theoretical
+    distributions (e.g 'norm', 'skewnorm', 'gamma', etc), empirical synthetic
+    hyetographs (e.g SCS Type I, G2_Espildora1979, G4p50_Varas1985, etc), or
+    specific design storm methods like alternating block, triangular, instant
+    intensity, etc (Chow, 1995).
+    """
+    PREDEFINED_STORMS = SHYETO_DATA.columns
 
-# class RainStorm:
-#     """
-#     The class can be used to build rainstorms that follow any of scipy
-#     theoretical distributions (e.g 'norm', 'skewnorm', 'gamma', etc) or
-#     the empirical rain distributions of the SCS type I, IA, II, III and the
-#     Chilean synthetic hyetographs of (Espildora and Echavarría 1979),
-#     (Benitez and Verni 1985) and (Varas 1985).
+    def __init__(self, storm_type: str, timestep: float,
+                 rain24: float | ArrayLike = None, idf: ArrayLike = None,
+                 idf_scaling: bool = True, duration_limits: ArrayLike = (0, 72),
+                 storm_kwargs: dict | None = None) -> None:
+        """
+        Synthetic RainStorm builder
 
-#     The class also supports the 'alternating_block' method, which generates
-#     hyetographs directly from IDF/RDF curves using the alternating block
-#     algorithm (Chow, 1985).
-#     """
-#     PREDEFINED_STORMS = SHYETO_DATA.columns
+        Args:
+            storm_type (str): Type of storm model to use.
+                - Options:
+                   G1_Espildora1979, G2_Espildora1979, G3_Espildora1979,
+                   G1_Benitez1985, G2_Benitez1985, G3_Benitez1985,
+                   SCS_I24, SCS_IA24,
+                   SCS_II6, SCS_II12, SCS_II24, SCS_II48,
+                   SCS_III24,
+                   G1p10_Varas1985, G1p25_Varas1985, G1p50_Varas1985,
+                   G1p75_Varas1985, G1p90_Varas1985,
+                   G2p10_Varas1985, G2p25_Varas1985, G2p50_Varas1985,
+                   G2p75_Varas1985, G2p90_Varas1985,
+                   G3p10_Varas1985, G3p25_Varas1985, G3p50_Varas1985,
+                   G3p75_Varas1985, G3p90_Varas1985,
+                   G4p10_Varas1985, G4p25_Varas1985, G4p50_Varas1985,
+                   G4p75_Varas1985, G4p90_Varas1985,
+                - SciPy distribution (e.g., 'norm', 'gamma')
+                - alternating_block
+            timestep (float): Time step or resolution in hours.
+            rain24 (ArrayLike, optional): rainfall amount(s) in mm per 24 hours.
+            idf (ArrayLike, optional): IDF curve as an array with an
+                identifiable 'duration' dimension. If None, IDF will be computed
+                from rainfall using duration_coef. Defaults to None.
+            idf_scaling (bool): If True, scale the hyetograph to match the
+                intensity-duration curve at the specified rain24. Defaults to
+                True.
+            bell_threshold (int, float): Duration threshold [hr] below which
+                Bell's formula is applied. Default is 1 hr. Force to 0 to
+                disable.
+            idf_model_type (int, optional): Type of parametric model to fit.
+                Only used if parametric=True.
+                Options:
+                    1: Type I power law: i(t) = a / t^b
+                    2: Type II power law: i(t) = a / (t^b + c)
+                    3: Type III power law: i(t) = a / (t + c)^b
+                Defaults to 2.
+            duration_limits (ArrayLike, optional): Min and max duration limits
+                in hours for the IDF curve. Defaults to (0, 72).
+            storm_kwargs (dict | None): Additional parameters depending on
+                  storm type.
+                - For predefined storms: No extra parameters needed.
+                - For theoretical design methods: No extra parameters needed.
+                - For SciPy distributions: `loc`, `scale`, and shape params.
+        """
+        # Avoid mutable default
+        if storm_kwargs is None:
+            storm_kwargs = {}
 
-#     def __init__(self, kind: str, timestep: float, **kwargs: Any) -> None:
-#         """
-#         Synthetic RainStorm builder
+        # Check design computation path
+        if storm_type in self.PREDEFINED_STORMS:
+            self.pr_dimless = self._predefined_hyetograph(storm_type)
+            self._pr_dimless_cum = self.pr_dimless.cumsum()
+        elif hasattr(st, storm_type):
+            self.pr_dimless = self._scipy_hyetograph(storm_type,
+                                                     **storm_kwargs)
+            self._pr_dimless_cum = self.pr_dimless.cumsum()
+        elif storm_type in ['triangular', 'alternating_block',
+                            'instant_intensity']:
+            # Design storm methods doesnt rely on dimensionless hyetographs
+            self.pr_dimless = None
+            self._pr_dimless_cum = None
+            raise NotImplementedError(
+                f"{storm_type} method not yet implemented.")
+        else:
+            raise ValueError(f"Unknown storm_type '{storm_type}'")
 
-#         Args:
-#             kind (str): Type of storm model to use.
-#                 - Options:
-#                    G1_Espildora1979, G2_Espildora1979, G3_Espildora1979,
-#                    G1_Benitez1985, G2_Benitez1985, G3_Benitez1985,
-#                    SCS_I24, SCS_IA24,
-#                    SCS_II6, SCS_II12, SCS_II24, SCS_II48,
-#                    SCS_III24,
-#                    G1p10_Varas1985, G1p25_Varas1985, G1p50_Varas1985,
-#                    G1p75_Varas1985, G1p90_Varas1985,
-#                    G2p10_Varas1985, G2p25_Varas1985, G2p50_Varas1985,
-#                    G2p75_Varas1985, G2p90_Varas1985,
-#                    G3p10_Varas1985, G3p25_Varas1985, G3p50_Varas1985,
-#                    G3p75_Varas1985, G3p90_Varas1985,
-#                    G4p10_Varas1985, G4p25_Varas1985, G4p50_Varas1985,
-#                    G4p75_Varas1985, G4p90_Varas1985,
-#                 - SciPy distribution (e.g., 'norm', 'gamma')
-#                 - alternating_block
-#             timestep (float): Storm timestep or resolution in hours.
-#             **kwargs: Additional parameters depending on the storm type.
-#                 - For predefined storms: No extra parameters needed.
-#                 - For SciPy distributions: `loc`, `scale`, and shape params.
+        # Determine if IDF scaling is to be applied
+        if rain24 is not None:
+            self.idf_scaling = idf_scaling
+        else:
+            self.idf_scaling = True
 
-#         Examples:
-#             RainStorm('SCS_I24', timestep=0.5)
-#             RainStorm('G2_Benitez1985', timestep=0.5)
-#             RainStorm('G3_Espildora1979', timestep=0.5)
-#             RainStorm('G4p10_Varas1985', timestep=0.5)
-#             RainStorm('norm', timestep=0.5, loc=0.5, scale=0.2)
-#             RainStorm('gamma', timestep=0.5, loc=0, scale=0.15, a=2)
-#             RainStorm('alternating_block', timestep=0.5)
-#         """
-#         if timestep <= 0:
-#             raise ValueError(f"timestep must be positive, got {timestep}")
+        # Initialize base IDF class
+        super().__init__(timestep=timestep, rain24=rain24, idf=idf,
+                         duration_limits=duration_limits)
 
-#         self.kind = kind
-#         self.timestep = timestep
-#         self.duration = self.rainfall = self.time = None
-#         self.idf_curve = self.rdf_curve = None
-#         self.pr = self.pr_cum = None
+        # Store input arguments
+        self.storm_type = storm_type
+        self.storm_kwargs = storm_kwargs
 
-#         if kind == 'alternating_block':
-#             # Alternating block method doesn't use dimensionless hyetograph
-#             self.pr_dimless = None
-#             self._pr_dimless_cum = None
-#         elif kind in self.PREDEFINED_STORMS:
-#             self.pr_dimless = self._predefined_hyetograph(kind)
-#             self._pr_dimless_cum = self.pr_dimless.cumsum()
-#         elif hasattr(st, kind):
-#             self.pr_dimless = self._scipy_hyetograph(kind, **kwargs)
-#             self._pr_dimless_cum = self.pr_dimless.cumsum()
-#         else:
-#             raise ValueError(f"Unknown storm type: {kind}")
+    def copy(self) -> Type['RainStorm']:
+        """
+        Create a deep copy of the class itself
+        """
+        return pycopy.deepcopy(self)
 
-#     def copy(self) -> Type['RainStorm']:
-#         """
-#         Create a deep copy of the class itself
-#         """
-#         return pycopy.deepcopy(self)
+# ----------------------------- IDF functionality ---------------------------- #
 
-#     def _build_inputs(self,
-#                       duration: ArrayLike,
-#                       rainfall: ArrayLike,
-#                       idf_curve: ArrayLike,
-#                       onset_time: ArrayLike,
-#                       ) -> tuple[xr.DataArray, xr.DataArray,
-#                                  xr.DataArray, xr.DataArray]:
-#         """
-#         Broadcast duration/rainfall/onset_time/idf_curve, validate values,
-#         return max total duration.
-#         """
-#         xr_duration = obj2xarray(duration)
-#         xr_rainfall = obj2xarray(rainfall) if rainfall is not None else None
-#         xr_idf_curve = obj2xarray(idf_curve) if idf_curve is not None else None
-#         xr_onset_time = obj2xarray(onset_time)
+    def fit(self, parametric: bool = True, idf_model_type: int = 2,
+            bell_threshold: float = 1, **kwargs) -> Type['RainStorm']:
+        """
+        Rewrite the fit method to include hyetograph generation along with IDF
+        fitting/scaling.
 
-#         # Rename generic dimension names to avoid broadcasting conflicts
-#         arrays = {'duration': xr_duration, 'rainfall': xr_rainfall,
-#                   'idf_curve': xr_idf_curve, 'onset_time': xr_onset_time}
-#         for prefix, da in arrays.items():
-#             if da is not None and 'dim_' in str(da.dims):
-#                 new_dims = {dim: f'{prefix}_{i}'
-#                             for i, dim in enumerate(da.dims)
-#                             if dim.startswith('dim_')}
-#                 arrays[prefix] = da.rename(new_dims)
-#         xr_duration, xr_rainfall, xr_idf_curve, xr_onset_time = (
-#             arrays['duration'], arrays['rainfall'],
-#             arrays['idf_curve'], arrays['onset_time'])
+        Args:
+            parametric (bool): If True, fits a parametric model to the IDF
+                curve. If False, interpolate/extrapolate the sampled IDF curve
+                directly. Defaults to True.
+            idf_model_type (int, optional): Type of parametric model to fit.
+                Options:
+                    1: Type I power law: i(t) = a / t^b
+                    2: Type II power law: i(t) = a / (t^b + c)
+                    3: Type III power law: i(t) = a / (t + c)^b
+                Defaults to 2.
+            bell_threshold (int, float): Duration threshold [hr] below which
+                Bell's formula is applied. Default is 1 hr. Force to 0 to
+                disable.
+            **kwargs: Additional keyword arguments for duration_coef if rain24
+                is provided (e.g., ref_pgauge, expon, etc.).
+        """
+        if self.idf_scaling:
+            super().fit(parametric=parametric,
+                        idf_model_type=idf_model_type,
+                        bell_threshold=bell_threshold,
+                        **kwargs)
+        else:
+            # Build IDF without scaling
+            self.rdf = self.rain24.expand_dims({'duration': self.durations})
+            self.idf = self._rdf2idf(self.rdf)
+            self.dcoefs = self._rdf2dcoef(self.rdf)
+        return self
 
-#         # Broadcast to same shape, avoiding idf_curve's 'duration' dim
-#         if xr_idf_curve is not None and 'duration' in xr_idf_curve.dims:
-#             # Broadcast xr_duration against idf_curve's other dims
-#             # (excluding curve)
-#             idf_other_dims = xr_idf_curve
-#             # Create a view with other dims only by taking a single
-#             # slice along the curve dimension; this preserves other dims
-#             # for broadcast
-#             idf_other_dims = idf_other_dims.isel(
-#                 duration=0, drop=True)
-#             xr_duration, _ = xr.broadcast(xr_duration, idf_other_dims)
-#             xr_duration, xr_onset_time = xr.broadcast(xr_duration,
-#                                                       xr_onset_time)
-#         elif xr_rainfall is not None:
-#             xr_duration, xr_rainfall = xr.broadcast(xr_duration,
-#                                                     xr_rainfall)
-#             xr_duration, xr_onset_time = xr.broadcast(xr_duration,
-#                                                       xr_onset_time)
-#         else:
-#             xr_duration, xr_onset_time = xr.broadcast(xr_duration,
-#                                                       xr_onset_time)
+# --------------------------------- Utilities -------------------------------- #
 
-#         # Validate inputs
-#         for name, arr in [('duration', xr_duration),
-#                           ('rainfall', xr_rainfall),
-#                           ('idf_curve', xr_idf_curve),
-#                           ('onset_time', xr_onset_time)]:
-#             if arr is not None and (arr < 0).any():
-#                 raise ValueError(f"{name} must be non-negative")
+    def _build_time_axes(self, total_duration: float, tail_duration: float
+                         ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Build base and extended time arrays.
+        """
+        dt_eps = self.timestep * 1e-3
+        base_time = np.arange(0, total_duration + dt_eps, self.timestep)
+        extended_time = np.arange(0, total_duration + tail_duration + dt_eps,
+                                  self.timestep)
+        return base_time, extended_time
 
-#         return (xr_duration, xr_rainfall, xr_idf_curve, xr_onset_time)
+    def _shift_timeseries_1d(self, arr: np.ndarray,
+                             shift_hours: float) -> np.ndarray:
+        """Shift cumulative time series forward by prepending zeros."""
+        if shift_hours <= 0:
+            return arr
+        shift_steps = int(np.round(shift_hours / self.timestep))
+        return np.concatenate([np.zeros(shift_steps), arr])[:len(arr)]
 
-#     def _build_time_axes(self, total_duration: float, tail_duration: float
-#                          ) -> tuple[np.ndarray, np.ndarray]:
-#         """
-#         Build base and extended time arrays.
-#         """
-#         dt_eps = self.timestep * 1e-3
-#         base_time = np.arange(0, total_duration + dt_eps, self.timestep)
-#         extended_time = np.arange(0, total_duration + tail_duration + dt_eps,
-#                                   self.timestep)
-#         return base_time, extended_time
+    def _apply_onset_time(self, da: xr.DataArray,
+                          xr_onset_time: xr.DataArray) -> xr.DataArray:
+        """Apply onset time delay to da"""
+        if (xr_onset_time == 0).all():
+            return da
+        da_shifted = xr.apply_ufunc(self._shift_timeseries_1d, da,
+                                    xr_onset_time, input_core_dims=[
+                                        ['time'], []],
+                                    output_core_dims=[['time']],
+                                    vectorize=True)
+        return da_shifted.transpose(*da.dims)
 
-#     def _validate_idf_curve(self, xr_idf_curve: xr.DataArray) -> xr.DataArray:
-#         """
-#         Validate IDF curve structure and sort by duration if needed.
-#         """
-#         if 'duration' not in xr_idf_curve.dims:
-#             raise ValueError("idf_curve must have a 'duration' dimension")
-#         if (xr_idf_curve < 0).any():
-#             raise ValueError("IDF curve values must be non-negative")
-#         # Ensure monotonic increasing duration coordinate
-#         if not xr_idf_curve['duration'].to_series().is_monotonic_increasing:
-#             xr_idf_curve = xr_idf_curve.sortby('duration')
-#         return xr_idf_curve
+# ---------------------- Synthetic Hyetograph Generators --------------------- #
+    def _predefined_hyetograph(self, kind: str) -> pd.Series:
+        """
+        Synthetic hyetograph generator function for predefined synthetic
+        hyetographs.
 
-#     def _apply_idf_scaling(self, xr_duration: xr.DataArray,
-#                            xr_rainfall: xr.DataArray,
-#                            idf_kwargs: dict) -> xr.DataArray:
-#         """Scale rainfall to target durations using duration_coef."""
-#         return xr_rainfall * duration_coef(xr_duration, **idf_kwargs)
+        Args:
+            kind (str): Type of synthetic hyetograph to use.
+                Can be any of:
+                   > "SCS_X" with X = I24,IA24,II6,II12,II24,II48,III24
+                   > "GX_Benitez1985" with X = 1,2,3
+                   > "GX_Espildora1979" with X = 1,2,3
+                   > "GXpY_Varas1985" with X = 1,2,3,4 and Y=10,25,50,75,90
+        """
+        return SHYETO_DATA[kind]
 
-#     def _build_rdf_curve_from_rainfall(self, xr_rainfall: xr.DataArray,
-#                                        idf_scaling: bool, idf_kwargs: dict
-#                                        ) -> xr.DataArray:
-#         """Build a rainfall-duration curve from a rainfall value."""
-#         durations_rdf = np.arange(0, 72 + self.timestep, self.timestep)
-#         rainfall_base = float(
-#             xr_rainfall) if xr_rainfall.ndim == 0 else xr_rainfall
-#         rainfall_values = (duration_coef(durations_rdf, **idf_kwargs)
-#                            if idf_scaling else np.ones_like(durations_rdf))
-#         xr_rdf_curve = self._create_rdf_array_from_values(
-#             rainfall_values, rainfall_base, durations_rdf)
-#         return self._finalize_rdf_curve(xr_rdf_curve)
+    def _scipy_hyetograph(self, kind: str, loc: float = 0.5, scale: float = 0.1,
+                          flip: bool = False, n: int = 1000, **kwargs: Any
+                          ) -> pd.Series:
+        """Synthetic hyetograph generator function for any of scipy
+        distributions. The synthetic hyetograph will be built with the given
+        loc, scale and scipy default parameters.
+        """
+        time_dimless = np.linspace(0, 1, n)
+        distr = getattr(st, kind)
+        shyeto = distr.pdf(time_dimless, loc=loc, scale=scale, **kwargs)
+        shyeto /= np.sum(shyeto)  # Normalize to sum 1
+        if flip:
+            shyeto = shyeto[::-1]
+        return pd.Series(shyeto, index=time_dimless)
 
-#     def _create_rdf_array_from_values(self, rainfall_values: np.ndarray,
-#                                       rainfall_base: float | xr.DataArray,
-#                                       durations: np.ndarray) -> xr.DataArray:
-#         """Create xarray.DataArray for RDF curve from rainfall values."""
-#         if isinstance(rainfall_base, (float, int)):
-#             return xr.DataArray(rainfall_values * rainfall_base,
-#                                 dims=['duration'],
-#                                 coords={'duration': durations})
-#         values_da = xr.DataArray(rainfall_values,
-#                                  dims=['duration'],
-#                                  coords={'duration': durations})
-#         return rainfall_base * values_da
+    def _dimensionless_shyeto(self, base_time: np.ndarray,
+                              xr_duration: xr.DataArray,
+                              interp_kwargs: dict) -> xr.DataArray:
+        """
+        Interpolate cached dimensionless cumulative hyetograph over
+        normalized time per cell.
+        """
+        source_cum = xr.DataArray(
+            self._pr_dimless_cum.values,
+            dims=['source_time'],
+            coords={'source_time': self.pr_dimless.index.values}
+        )
+        norm_time = (xr.DataArray(base_time, dims=['time']) /
+                     xr_duration).clip(0, 1)
+        shyeto = source_cum.interp(source_time=norm_time, **interp_kwargs)
 
-#     def _finalize_rdf_curve(self, xr_rdf_curve: xr.DataArray) -> xr.DataArray:
-#         """Finalize RDF curve with boundary conditions and metadata."""
-#         xr_rdf_curve.loc[{'duration': 0}] = 0
-#         xr_rdf_curve.name = 'rainfall'
-#         xr_rdf_curve.attrs = {'standard_name': 'total_rainfall_vs_duration',
-#                               'units': 'mm'}
-#         return xr_rdf_curve
+        # Normalize final value to 1.0 to ensure pr_cum matches rainfall
+        shyeto = shyeto / shyeto.isel(time=-1, drop=False)
+        shyeto = shyeto.assign_coords(time=base_time)
+        shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
+        return shyeto
 
-#     def _idf2rdf(self, xr_rdf: xr.DataArray) -> xr.DataArray:
-#         """Convert RDF to IDF curve."""
-#         durations = xr_rdf['duration'].values
-#         xr_idf = (xr_rdf / durations).where(durations > 0, np.inf)
-#         xr_idf.name = 'intensity'
-#         xr_idf.attrs = {'standard_name': 'intensity_vs_duration',
-#                         'units': 'mm/hr'}
-#         return xr_idf
+# ----------------------------------- Core ----------------------------------- #
+    def _build_inputs(self,
+                      target_duration: ArrayLike,
+                      onset_time: ArrayLike,
+                      ) -> tuple[xr.DataArray, xr.DataArray,
+                                 xr.DataArray, xr.DataArray]:
+        """
+        Broadcast target_duration/onset_time to the rdf curve and validate
+        input values.
+        """
+        # Validate and transform inputs
+        if self.rdf is None:
+            raise ValueError("IDF curve must be computed before building a "
+                             "storm. Call fit() method first.")
 
-#     def _rdf2idf(self, xr_idf: xr.DataArray) -> xr.DataArray:
-#         """Convert IDF to RDF curve."""
-#         xr_rdf = xr_idf * xr_idf['duration'].values
-#         xr_rdf.loc[{'duration': 0}] = 0
-#         xr_rdf.name = 'rainfall'
-#         xr_rdf.attrs = {'standard_name': 'total_rainfall_vs_duration',
-#                         'units': 'mm'}
-#         return xr_rdf
+        xr_rdf = self.rdf.copy()
+        xr_target_duration = obj2xarray(target_duration,
+                                        name='target_duration')
+        xr_onset_time = obj2xarray(onset_time,
+                                   name='onset_time')
 
-#     def _evaluate_rdf(self, xr_rdf_curve: xr.DataArray,
-#                       xr_duration: xr.DataArray,
-#                       interp_kwargs: dict) -> xr.DataArray:
-#         """Evaluate RDF curve at target durations."""
-#         dmin, dmax = float(xr_rdf_curve['duration'].min()), float(
-#             xr_rdf_curve['duration'].max())
-#         if (xr_duration < dmin).any() or (xr_duration > dmax).any():
-#             raise ValueError(
-#                 f"Cannot compute storm for durations outside curve bounds "
-#                 f"[{dmin}, {dmax}] hr. Requested: [{float(xr_duration.min())}, "
-#                 f"{float(xr_duration.max())}] hr")
-#         return xr_rdf_curve.interp(duration=xr_duration, **interp_kwargs)
+        for name, arr in [('target_duration', xr_target_duration),
+                          ('onset_time', xr_onset_time)]:
+            if arr is not None and (arr < 0).any():
+                raise ValueError(f"{name} must be non-negative")
 
-#     def _predefined_hyetograph(self, kind: str) -> pd.Series:
-#         """
-#         Synthetic hyetograph generator function for predefined synthetic
-#         hyetographs.
+        # Rename generic dimension names to avoid broadcasting conflicts
+        arrays = {'target_duration': xr_target_duration,
+                  'onset_time': xr_onset_time}
+        for prefix, da in arrays.items():
+            if da is not None and 'dim_' in str(da.dims):
+                new_dims = {dim: f'{prefix}_{i}'
+                            for i, dim in enumerate(da.dims)
+                            if dim.startswith('dim_')}
+                arrays[prefix] = da.rename(new_dims)
+        xr_target_duration, xr_onset_time = (arrays['target_duration'],
+                                             arrays['onset_time'])
 
-#         Args:
-#             kind (str): Type of synthetic hyetograph to use.
-#                 Can be any of:
-#                    > "SCS_X" with X = I24,IA24,II6,II12,II24,II48,III24
-#                    > "GX_Benitez1985" with X = 1,2,3
-#                    > "GX_Espildora1979" with X = 1,2,3
-#                    > "GXpY_Varas1985" with X = 1,2,3,4 and Y=10,25,50,75,90
-#         """
-#         return SHYETO_DATA[kind]
+        # Broadcast to same shape
+        xr_target_duration, _ = xr.broadcast(xr_target_duration,
+                                             xr_rdf.isel(duration=0))
+        xr_onset_time, _ = xr.broadcast(xr_onset_time, xr_target_duration)
+        return (xr_target_duration, xr_onset_time)
 
-#     def _scipy_hyetograph(self, kind: str, loc: float = 0.5, scale: float = 0.1,
-#                           flip: bool = False, n: int = 1000, **kwargs: Any
-#                           ) -> pd.Series:
-#         """Synthetic hyetograph generator function for any of scipy
-#         distributions. The synthetic hyetograph will be built with the given
-#         loc, scale and scipy default parameters.
-#         """
-#         time_dimless = np.linspace(0, 1, n)
-#         distr = getattr(st, kind)
-#         shyeto = distr.pdf(time_dimless, loc=loc, scale=scale, **kwargs)
-#         shyeto /= np.sum(shyeto)  # Normalize to sum 1
-#         if flip:
-#             shyeto = shyeto[::-1]
-#         return pd.Series(shyeto, index=time_dimless)
+    def _evaluate_rdf(self, xr_duration: xr.DataArray, interp_kwargs: dict
+                      ) -> xr.DataArray:
+        """Evaluate RDF curve at target durations."""
+        dmin, dmax = self.duration_limits
+        if (xr_duration < dmin).any() or (xr_duration > dmax).any():
+            raise ValueError(
+                f"Cannot compute storm for durations outside IDF curve bounds "
+                f"[{dmin}, {dmax}] hr. Requested: [{float(xr_duration.min())}, "
+                f"{float(xr_duration.max())}] hr")
+        return self.rdf.interp(duration=xr_duration, **interp_kwargs)
 
-#     def _dimensionless_shyeto(self, base_time: np.ndarray,
-#                               xr_duration: xr.DataArray,
-#                               interp_kwargs: dict) -> xr.DataArray:
-#         """
-#             Interpolate cached dimensionless cumulative hyetograph over
-#             normalized time per cell.
-#         """
-#         source_cum = xr.DataArray(
-#             self._pr_dimless_cum.values,
-#             dims=['source_time'],
-#             coords={'source_time': self.pr_dimless.index.values}
-#         )
-#         norm_time = (xr.DataArray(base_time, dims=['time']) /
-#                      xr_duration).clip(0, 1)
-#         shyeto = source_cum.interp(source_time=norm_time, **interp_kwargs)
+    def compute(self,
+                target_duration: int | float | ArrayLike,
+                onset_time: int | float | ArrayLike = 0,
+                tail_duration: float = 0,
+                interp_kwargs: dict = {'method': 'linear'}
+                ) -> Type['RainStorm']:
+        """
+        Trigger computation of design storm for a given storm duration
+        and total precipitation.
 
-#         # Normalize final value to 1.0 to ensure pr_cum matches rainfall
-#         shyeto = shyeto / shyeto.isel(time=-1, drop=False)
-#         shyeto = shyeto.assign_coords(time=base_time)
-#         shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
-#         return shyeto
+        Args:
+            target_duration (float or array_like): Storm duration in hours.
+                Can be scalar or broadcastable to rainfall/idf_curve (e.g.,
+                spatial grid with same dims).
+            onset_time (float or array_like, optional): Time delay in hours for
+                storm onset. If scalar, shifts all precipitation uniformly.
+                If array_like, allows spatially variable timing. Default is 0.
+            tail_duration (float, optional): Additional time in hours to extend
+                the time axis after the storm ends. Used to pad with zeros after
+                precipitation. Default is 0.
+            interp_kwargs (dict): Extra arguments for time interpolation.
+                Defaults to {'method': 'linear'}.
+
+        Returns:
+            Updated class instance with computed storm.
+        """
+        inputs = self._build_inputs(target_duration, onset_time)
+        (xr_target_duration, xr_onset_time) = inputs
+
+        # Build time axes
+        total_duration = xr_target_duration.max().item()
+        total_duration += float(xr_onset_time.max().item())
+        base_time, extended_time = self._build_time_axes(total_duration,
+                                                         tail_duration)
+        if self.storm_type in ['triangular', 'alternating_block',
+                               'instant_intensity']:
+            raise NotImplementedError(
+                f"{self.storm_type} method not yet implemented.")
+        else:
+            shyeto = self._dimensionless_shyeto(base_time, xr_target_duration,
+                                                interp_kwargs)
+            xr_rainfall = self._evaluate_rdf(xr_target_duration, interp_kwargs)
+            pr_cum = shyeto * xr_rainfall
+
+            # Apply onset time
+            pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
+
+            # Differentiate to get precipitation rate
+            pr = pr_cum.differentiate('time')
+            pr = pr.reindex({'time': extended_time}).fillna(0)
+            pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
+
+        pr.name, pr.attrs = 'pr', {
+            'standard_name': 'precipitation rate', 'units': 'mm/hr'}
+
+        pr_cum.name, pr_cum.attrs = 'pr_cum', {
+            'standard_name': 'cumulative precipitation', 'units': 'mm'}
+
+        # bias = pr.integrate('time') + pr_cum.isel(time=0, drop=True)
+        # bias = abs(bias-self.rain24).max()
+        # if bias > 1e-3:
+        #     warnings.warn(
+        #         f"Mass balance error detected in storm computation. "
+        #         f"Max bias: {bias:.4f} mm. Check input parameters.",
+        #         UserWarning
+        #     )
+
+        self.pr = pr
+        self.pr_cum = pr_cum
+        self.time = pr.coords['time']
+        return self
 
 #     def _alternating_block_hyetograph(self,
 #                                       xr_rdf_curve: xr.DataArray,
@@ -892,7 +983,7 @@ class RainStorm:
 #         4. Return as precipitation rate (mm/hr)
 
 #         Args:
-#             xr_rdf_curve: Rainfall-duration curve with 'duration' dimension
+#             xr_rdf_curve: rainfall-duration curve with 'duration' dimension
 #             xr_duration: Target storm durations
 #             base_time: Time array for the storm
 #             interp_kwargs: Interpolation keyword arguments
@@ -951,56 +1042,6 @@ class RainStorm:
 
 #         return pr_alternated
 
-#     def _shift_timeseries_1d(self, cum_series: np.ndarray,
-#                              shift_hours: float) -> np.ndarray:
-#         """Shift cumulative time series forward by prepending zeros."""
-#         if shift_hours <= 0:
-#             return cum_series
-#         shift_steps = int(np.round(shift_hours / self.timestep))
-#         return np.concatenate([np.zeros(shift_steps),
-#                                cum_series])[:len(cum_series)]
-
-#     def _apply_onset_time(self, pr_cum: xr.DataArray,
-#                           xr_onset_time: xr.DataArray) -> xr.DataArray:
-#         """Apply onset time delay to cumulative precipitation."""
-#         if (xr_onset_time == 0).all():
-#             return pr_cum
-#         pr_cum_shifted = xr.apply_ufunc(self._shift_timeseries_1d, pr_cum,
-#                                         xr_onset_time, input_core_dims=[
-#                                             ['time'], []],
-#                                         output_core_dims=[['time']],
-#                                         vectorize=True)
-#         return pr_cum_shifted.transpose(*pr_cum.dims)
-
-#     def _build_outputs(self, shyeto: xr.DataArray,
-#                        xr_rainfall: xr.DataArray,
-#                        xr_onset_time: xr.DataArray,
-#                        base_time: np.ndarray,
-#                        extended_time: np.ndarray
-#                        ) -> tuple[xr.DataArray, xr.DataArray]:
-#         """
-#         Create cumulative and rate precipitation fields, apply time
-#         shift, pad zeros beyond each duration.
-#         """
-#         pr_cum = shyeto * xr_rainfall
-#         # Ensure 'time' is the leading dimension regardless of how
-#         # inputs broadcast
-#         other_dims = [d for d in pr_cum.dims if d != 'time']
-#         pr_cum = pr_cum.transpose(*(['time'] + other_dims))
-
-#         # Apply onset time
-#         pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
-
-#         pr = (pr_cum.diff('time').reindex({'time': base_time}) / self.timestep)
-#         pr = pr.reindex({'time': extended_time}).fillna(0)
-#         pr.name, pr.attrs = 'pr', {
-#             'standard_name': 'precipitation rate', 'units': 'mm/hr'}
-
-#         pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
-#         pr_cum.name, pr_cum.attrs = 'pr_cum', {
-#             'standard_name': 'cumulative precipitation', 'units': 'mm'}
-#         return pr, pr_cum
-
 #     def _compute_alternating_block_storm(self,
 #                                          xr_duration: xr.DataArray,
 #                                          xr_onset_time: xr.DataArray,
@@ -1046,124 +1087,3 @@ class RainStorm:
 #             'standard_name': 'cumulative precipitation', 'units': 'mm'}
 
 #         return pr, pr_cum
-
-#     def _compute_dimensionless_storm(self,
-#                                      xr_duration: xr.DataArray,
-#                                      xr_rainfall: xr.DataArray,
-#                                      xr_onset_time: xr.DataArray,
-#                                      base_time: np.ndarray,
-#                                      extended_time: np.ndarray,
-#                                      interp_kwargs: dict
-#                                      ) -> tuple[xr.DataArray, xr.DataArray]:
-#         """
-#         Compute storm using dimensionless hyetograph method.
-#         Returns pr and pr_cum with onset time already applied.
-#         """
-#         shyeto = self._dimensionless_shyeto(base_time, xr_duration,
-#                                             interp_kwargs)
-#         return self._build_outputs(shyeto, xr_rainfall, xr_onset_time,
-#                                    base_time, extended_time)
-
-#     def compute(self,
-#                 duration: int | float | ArrayLike,
-#                 rainfall: ArrayLike = None,
-#                 idf_curve: ArrayLike = None,
-#                 onset_time: int | float | ArrayLike = 0,
-#                 tail_duration: float = 0,
-#                 idf_scaling: bool = False,
-#                 interp_kwargs: dict = {'method': 'linear'},
-#                 idf_kwargs: dict = {}
-#                 ) -> Type['RainStorm']:
-#         """
-#         Trigger computation of design storm for a given storm duration
-#         and total precipitation.
-
-#         Args:
-#             duration (float or array_like): Storm duration in hours.
-#                 Can be scalar or broadcastable to rainfall/idf_curve (e.g.,
-#                 spatial grid with same dims).
-#             rainfall (array_like or float, optional): Total precipitation
-#                 amount in mm. If provided as a scalar/array and
-#                 `idf_scaling=False` (default), the same total rainfall is
-#                 used for all target durations. If `idf_scaling=True`, IDF
-#                 scaling is applied via duration coefficients so the total
-#                 rainfall changes with the target durations. Cannot be used
-#                 together with `idf_curve`.
-#             onset_time (float or array_like, optional): Time delay in hours for
-#                 storm onset. If scalar, shifts all precipitation uniformly.
-#                 If array_like, allows spatially variable timing. Default is 0.
-#             tail_duration (float, optional): Additional time in hours to extend
-#                 the time axis after the storm ends. Used to pad with zeros after
-#                 precipitation. Default is 0.
-#             idf_scaling (bool, optional): Whether to apply IDF scaling when
-#                 using `rainfall` parameter. Defaults to False. Ignored if
-#                 `idf_curve` is provided.
-#             idf_curve (array_like or xarray.DataArray, optional):
-#                 Intensity-duration curve with a 'duration' coordinate
-#                 representing intensity (mm/hr) for each duration (hr).
-#                 When provided, the curve is internally converted to a
-#                 rainfall-duration curve and evaluated at target durations.
-#                 `rainfall` and `idf_scaling` are ignored. Can have additional
-#                 dims (e.g., 'return_period', spatial dims). Both idf_curve
-#                 and rdf_curve are stored as class attributes.
-#             interp_kwargs (dict): Extra arguments for interpolation.
-#                 Defaults to {'method': 'linear'}.
-#             idf_kwargs (dict): Additional arguments passed to duration_coef
-#                 when idf_scaling=True. Defaults to {}.
-
-#         Returns:
-#             Updated class instance with computed storm.
-#         """
-#         # Validate input parameters
-#         if (rainfall is not None) == (idf_curve is not None):
-#             raise ValueError(
-#                 "Must specify exactly one of 'rainfall' or 'idf_curve'")
-
-#         inputs = self._build_inputs(duration, rainfall, idf_curve, onset_time)
-#         (xr_duration, xr_rainfall, xr_idf_curve, xr_onset_time) = inputs
-
-#         # Build and store RDF/IDF curves
-#         if xr_idf_curve is not None:
-#             # Path 1: User provided IDF curve
-#             self.idf_curve = self._validate_idf_curve(xr_idf_curve)
-#             self.rdf_curve = self._compute_rdf_from_idf(self.idf_curve)
-#             xr_rainfall = self._evaluate_rdf(self.rdf_curve, xr_duration,
-#                                              interp_kwargs)
-#         else:
-#             # Path 2: User provided rainfall - build synthetic curves
-#             # Force IDF scaling for alternating_block method
-#             if self.kind == 'alternating_block':
-#                 idf_scaling = True
-
-#             # Build RDF curve from rainfall (with or without IDF scaling)
-#             # The curve building handles scaling internally
-#             self.rdf_curve = self._build_rdf_curve_from_rainfall(
-#                 xr_rainfall, idf_scaling=idf_scaling, idf_kwargs=idf_kwargs
-#             )
-#             self.idf_curve = self._compute_idf_from_rdf(self.rdf_curve)
-
-#             # Evaluate the RDF curve at target duration for non-alternating methods
-#             if idf_scaling:
-#                 xr_rainfall = self._evaluate_rdf(self.rdf_curve, xr_duration,
-#                                                  interp_kwargs)
-
-#         # # Build time axes
-#         # base_time, extended_time = self._build_time_axes(total_duration,
-#         #                                                  tail_duration)
-
-#         # # Generate hyetograph using appropriate method
-#         # if self.kind == 'alternating_block':
-#         #     pr, pr_cum = self._compute_alternating_block_storm(
-#         #         xr_duration, xr_onset_time, base_time, extended_time,
-#         #         interp_kwargs
-#         #     )
-#         # else:
-#         #     pr, pr_cum = self._compute_dimensionless_storm(
-#         #         xr_duration, xr_rainfall, xr_onset_time,
-#         #         base_time, extended_time, interp_kwargs
-#         #     )
-
-#         # # Update class attributes
-#         # self.duration, self.rainfall = duration, rainfall
-#         # self.pr, self.pr_cum, self.time = pr, pr_cum, pr.time.values
-#         # return self
