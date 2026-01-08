@@ -158,55 +158,36 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
     return coefs if not scalar_input else coefs[0]
 
 
-def alternating_block_sort(arr: ArrayLike, axis=0):
+def alternating_block_sort(arr: ArrayLike):
     """
-    Sorts an array in an alternating block pattern along a specified axis.
-
-    If the minimum value is 0, it will only be placed at the beginning,
-    never at the end of the array.
+    Sorts a 1D array in an alternating block pattern.
 
     Args:
-        arr (ArrayLike): Input array to be rearranged.
-        axis (int, optional): Axis along which to sort and rearrange.
-            Default is 0.
-    Returns
+        arr (ArrayLike): Input 1D array to be rearranged.
+
+    Returns:
         rearranged (ArrayLike): Array with values rearranged in alternating
             block pattern, with the highest values placed near the center.
     """
-    arr = np.asarray(arr)
+    arr = np.asarray(arr).flatten()  # Ensure it's 1D
+    nan_mask = np.isnan(arr)
+    arr = arr[~nan_mask]
 
-    # Sort in descending order. Get size, create index and empty arrays
-    arr_sorted = np.sort(arr, axis=axis)
-    arr_sorted = np.flip(arr_sorted, axis=axis)
+    # Sort in descending order
+    arr_sorted = np.sort(arr)[::-1]
 
-    n = arr.shape[axis]
+    n = arr_sorted.size
     rearranged = np.zeros_like(arr_sorted)
-    indices = [slice(None)] * arr.ndim
 
     # Fill the rearranged array with alternating block pattern
     for i in range(n):
         pos = n // 2 + (-1) ** i * ((i + 1) // 2)
+        rearranged[pos] = arr_sorted[i]
 
-        # Select the i-th slice and place it at position 'pos'
-        indices[axis] = i
-        source_slice = arr_sorted[tuple(indices)]
-
-        indices[axis] = pos
-        rearranged[tuple(indices)] = source_slice
-
-    # Check if minimum value is 0 and if it ended up at the end,
-    # move it to the beginning
-    indices_end = [slice(None)] * arr.ndim
-    indices_end[axis] = -1
-    indices_start = [slice(None)] * arr.ndim
-    indices_start[axis] = 0
-
-    if np.min(arr) == 0 and np.min(rearranged[tuple(indices_end)]) == 0:
-        # Swap the last element with the first element
-        temp = rearranged[tuple(indices_start)].copy()
-        rearranged[tuple(indices_start)] = rearranged[tuple(indices_end)]
-        rearranged[tuple(indices_end)] = temp
-
+    # Place nan values at the end
+    if np.any(nan_mask):
+        rearranged = np.pad(rearranged, (0, nan_mask.sum()), 'constant',
+                            constant_values=np.nan)
     return rearranged
 
 # ----------------------------- IDF Relationships ---------------------------- #
@@ -620,8 +601,8 @@ class RainStorm(IDF):
     Generic class to build rainstorms that follow any of scipy theoretical
     distributions (e.g 'norm', 'skewnorm', 'gamma', etc), empirical synthetic
     hyetographs (e.g SCS Type I, G2_Espildora1979, G4p50_Varas1985, etc), or
-    specific design storm methods like alternating block, triangular, instant
-    intensity, etc (Chow, 1995).
+    specific design storm methods like alternating block or instant intensity 
+    (Chow, 1995).
     """
     PREDEFINED_STORMS = SHYETO_DATA.columns
 
@@ -688,13 +669,16 @@ class RainStorm(IDF):
             self.pr_dimless = self._scipy_hyetograph(storm_type,
                                                      **storm_kwargs)
             self._pr_dimless_cum = self.pr_dimless.cumsum()
-        elif storm_type in ['triangular', 'alternating_block',
-                            'instant_intensity']:
+        elif storm_type in ['alternating_block', 'instant_intensity']:
+            if idf_scaling is False:
+                raise ValueError(
+                    "idf_scaling must be True for design storm methods.")
             # Design storm methods doesnt rely on dimensionless hyetographs
             self.pr_dimless = None
             self._pr_dimless_cum = None
-            raise NotImplementedError(
-                f"{storm_type} method not yet implemented.")
+            if storm_type == 'instant_intensity':
+                raise NotImplementedError(
+                    f"{storm_type} method not yet implemented.")
         else:
             raise ValueError(f"Unknown storm_type '{storm_type}'")
 
@@ -718,7 +702,40 @@ class RainStorm(IDF):
         """
         return pycopy.deepcopy(self)
 
-# ----------------------------- IDF functionality ---------------------------- #
+# --------------------------------- Utilities -------------------------------- #
+    def _build_time_axes(self, total_duration: float, tail_duration: float
+                         ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Build base and extended time arrays.
+        """
+        dt_eps = self.timestep * 1e-3
+        base_time = np.arange(0, total_duration + dt_eps, self.timestep)
+        extended_time = np.arange(0, total_duration + tail_duration + dt_eps,
+                                  self.timestep)
+        base_time = xr.DataArray(base_time, dims=['time'])
+        extended_time = xr.DataArray(extended_time, dims=['time'])
+        return base_time, extended_time
+
+    def _shift_timeseries_1d(self, arr: np.ndarray,
+                             shift_hours: float) -> np.ndarray:
+        """Shift cumulative time series forward by prepending zeros."""
+        if shift_hours <= 0:
+            return arr
+        shift_steps = int(np.round(shift_hours / self.timestep))
+        return np.concatenate([np.zeros(shift_steps), arr])[:len(arr)]
+
+    def _apply_onset_time(self, da: xr.DataArray,
+                          xr_onset_time: xr.DataArray) -> xr.DataArray:
+        """Apply onset time delay to da"""
+        if (xr_onset_time == 0).all():
+            return da
+        da_shifted = xr.apply_ufunc(self._shift_timeseries_1d, da,
+                                    xr_onset_time, input_core_dims=[
+                                        ['time'], []],
+                                    output_core_dims=[['time']],
+                                    vectorize=True)
+        return da_shifted.transpose(*da.dims)
+# -------------------- IDF functionality and design storms ------------------- #
 
     def fit(self, parametric: bool = True, idf_model_type: int = 2,
             bell_threshold: float = 1, **kwargs) -> Type['RainStorm']:
@@ -754,40 +771,34 @@ class RainStorm(IDF):
             self.dcoefs = self._rdf2dcoef(self.rdf)
         return self
 
-# --------------------------------- Utilities -------------------------------- #
-
-    def _build_time_axes(self, total_duration: float, tail_duration: float
-                         ) -> tuple[np.ndarray, np.ndarray]:
+    def _alternating_block(self, base_time: np.ndarray,
+                           xr_duration: xr.DataArray) -> tuple[xr.DataArray,
+                                                               xr.DataArray]:
         """
-        Build base and extended time arrays.
+        Generate cumulative and incremental rainfall using the alternating
+        block method.
         """
-        dt_eps = self.timestep * 1e-3
-        base_time = np.arange(0, total_duration + dt_eps, self.timestep)
-        extended_time = np.arange(0, total_duration + tail_duration + dt_eps,
-                                  self.timestep)
-        return base_time, extended_time
+        dims = {dim: coord for dim, coord in xr_duration.coords.items()}
+        time = base_time.expand_dims(dims)
+        time = time.transpose('time', *dims.keys())
+        time = time.clip(0, xr_duration)
+        pr_cum = self._evaluate_rdf(time, interp_kwargs={})
+        pr_cum = pr_cum.reset_coords(drop=True)
+        pr = pr_cum.diff('time').pad(time=(1, 0), constant_values=0)
+        pr = pr / self.timestep
 
-    def _shift_timeseries_1d(self, arr: np.ndarray,
-                             shift_hours: float) -> np.ndarray:
-        """Shift cumulative time series forward by prepending zeros."""
-        if shift_hours <= 0:
-            return arr
-        shift_steps = int(np.round(shift_hours / self.timestep))
-        return np.concatenate([np.zeros(shift_steps), arr])[:len(arr)]
-
-    def _apply_onset_time(self, da: xr.DataArray,
-                          xr_onset_time: xr.DataArray) -> xr.DataArray:
-        """Apply onset time delay to da"""
-        if (xr_onset_time == 0).all():
-            return da
-        da_shifted = xr.apply_ufunc(self._shift_timeseries_1d, da,
-                                    xr_onset_time, input_core_dims=[
-                                        ['time'], []],
-                                    output_core_dims=[['time']],
-                                    vectorize=True)
-        return da_shifted.transpose(*da.dims)
+        pr = xr.apply_ufunc(alternating_block_sort,
+                            pr.where(pr > 0),
+                            input_core_dims=[['time']],
+                            output_core_dims=[['time']],
+                            vectorize=True).transpose('time', *dims.keys())
+        pr = pr.pad(time=(1, 0), constant_values=0)
+        pr = pr.fillna(0).isel(time=slice(None, -1))
+        pr_cum = pr.cumsum('time') * self.timestep
+        return pr_cum, pr
 
 # ---------------------- Synthetic Hyetograph Generators --------------------- #
+
     def _predefined_hyetograph(self, kind: str) -> pd.Series:
         """
         Synthetic hyetograph generator function for predefined synthetic
@@ -929,10 +940,15 @@ class RainStorm(IDF):
         total_duration += float(xr_onset_time.max().item())
         base_time, extended_time = self._build_time_axes(total_duration,
                                                          tail_duration)
-        if self.storm_type in ['triangular', 'alternating_block',
-                               'instant_intensity']:
-            raise NotImplementedError(
-                f"{self.storm_type} method not yet implemented.")
+        if self.storm_type in ['alternating_block', 'instant_intensity']:
+            if self.storm_type == 'alternating_block':
+                pr_cum, pr = self._alternating_block(base_time,
+                                                     xr_target_duration)
+                pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
+                pr = self._apply_onset_time(pr, xr_onset_time)
+            else:
+                raise NotImplementedError(
+                    f"{self.storm_type} method not yet implemented.")
         else:
             shyeto = self._dimensionless_shyeto(base_time, xr_target_duration,
                                                 interp_kwargs)
@@ -943,9 +959,11 @@ class RainStorm(IDF):
             pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
 
             # Differentiate to get precipitation rate
-            pr = pr_cum.differentiate('time')
-            pr = pr.reindex({'time': extended_time}).fillna(0)
-            pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
+            pr = pr_cum.diff('time') / self.timestep
+            pr = pr.pad(time=(1, 0), constant_values=0)
+
+        pr = pr.reindex({'time': extended_time}).fillna(0)
+        pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
 
         pr.name, pr.attrs = 'pr', {
             'standard_name': 'precipitation rate', 'units': 'mm/hr'}
