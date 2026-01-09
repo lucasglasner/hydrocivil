@@ -15,14 +15,14 @@ import xarray as xr
 from typing import Any, Type
 from numpy.typing import ArrayLike
 from .global_vars import SHYETO_DATA, DURCOEFS_PGAUGES
-from .misc import obj2xarray, series2func, rsquared
+from .misc import obj2xarray, series2func, rsquared, alternating_block_sort
 import warnings
 
 import scipy.stats as st
 from scipy.optimize import curve_fit
+
+
 # -------------------- Intensity-duration-frequency curves ------------------- #
-
-
 def grunsky_coef(storm_duration: float | ArrayLike,
                  expon: float = 0.5) -> float:
     """
@@ -120,8 +120,6 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
         expon (float): Exponent of the Grunsky power law. Defaults to 0.5.
         bell_threshold (int, float): Duration threshold [hr] below which
             Bell's formula is applied. Default is 1 hr. Force to 0 to disable.
-
-
     Returns:
         np.ndarray: Duration coefficient(s) (dimensionless).
     """
@@ -156,41 +154,6 @@ def duration_coef(storm_duration: int | float, ref_pgauge: str = 'Grunsky',
 
     coefs = np.clip(coefs, 0, None)
     return coefs if not scalar_input else coefs[0]
-
-
-def alternating_block_sort(arr: ArrayLike):
-    """
-    Sorts a 1D array in an alternating block pattern.
-
-    Args:
-        arr (ArrayLike): Input 1D array to be rearranged.
-
-    Returns:
-        rearranged (ArrayLike): Array with values rearranged in alternating
-            block pattern, with the highest values placed near the center.
-    """
-    arr = np.asarray(arr).flatten()  # Ensure it's 1D
-    nan_mask = np.isnan(arr)
-    arr = arr[~nan_mask]
-
-    # Sort in descending order
-    arr_sorted = np.sort(arr)[::-1]
-
-    n = arr_sorted.size
-    rearranged = np.zeros_like(arr_sorted)
-
-    # Fill the rearranged array with alternating block pattern
-    for i in range(n):
-        pos = n // 2 + (-1) ** i * ((i + 1) // 2)
-        rearranged[pos] = arr_sorted[i]
-
-    # Place nan values at the end
-    if np.any(nan_mask):
-        rearranged = np.pad(rearranged, (0, nan_mask.sum()), 'constant',
-                            constant_values=np.nan)
-    return rearranged
-
-# ----------------------------- IDF Relationships ---------------------------- #
 
 
 class IDF:
@@ -250,7 +213,6 @@ class IDF:
         self.bell_threshold_ = None
 
     # -------------------------------- Validations --------------------------- #
-
     def _validate_inputs(self,
                          timestep: float,
                          rain24: ArrayLike,
@@ -333,11 +295,10 @@ class IDF:
         self.dcoefs.loc[{'duration': 0}] = 0
 
     # ----------------------------- Parametric Models ------------------------ #
-
     @staticmethod
     def _powerlaw_type1(t, b, rain_24):
         """
-        Type I power law model with constrain24t i(24) = rain_24/24
+        Type I power law model with constraint i(24) = rain_24/24
         i(t) = a / t^b, where a = rain_24 * 24^(b-1)
         """
         a = rain_24 * (24 ** (b - 1))
@@ -346,7 +307,7 @@ class IDF:
     @staticmethod
     def _powerlaw_type2(t, b, c, rain_24):
         """
-        Type II power law model with constrain24t i(24) = rain_24/24
+        Type II power law model with constraint i(24) = rain_24/24
         i(t) = a / (t^b + c), where a = rain_24 * (24^b + c) / 24
         """
         a = rain_24 * (24 ** b + c) / 24
@@ -355,14 +316,13 @@ class IDF:
     @staticmethod
     def _powerlaw_type3(t, b, c, rain_24):
         """
-        Type III power law model with constrain24t i(24) = rain_24/24
+        Type III power law model with constraint i(24) = rain_24/24
         i(t) = a / (t + c)^b, where a = rain_24 * (24 + c)^b / 24
         """
         a = rain_24 * ((24 + c) ** b) / 24
         return a / ((t + c) ** b)
 
     # ----------------------------------- Core ------------------------------- #
-
     def _build_duration_axis(self):
         """
         Build time axis based on duration limits and timestep.
@@ -493,7 +453,7 @@ class IDF:
         # Get rain24 for a 24 hour storm
         rain_24 = self.idf_sampled.interp(duration=24) * 24
 
-        # Evaluate model with rain_24 constrain24t
+        # Evaluate model with rain_24 constraint
         idf = model(durations, *self.fitcoefs_, rain_24)
         idf = idf.assign_coords({'duration': durations})
         idf = idf.transpose(*self.idf_sampled.dims)
@@ -596,20 +556,21 @@ class IDF:
         return self
 
 
+# ------------------------------- Design Storms ------------------------------ #
 class RainStorm(IDF):
     """
     Generic class to build rainstorms that follow any of scipy theoretical
     distributions (e.g 'norm', 'skewnorm', 'gamma', etc), empirical synthetic
     hyetographs (e.g SCS Type I, G2_Espildora1979, G4p50_Varas1985, etc), or
-    specific design storm methods like alternating block or instant intensity 
-    (Chow, 1995).
+    specific design storm methods like triangular, alternating block or instant
+    intensity hyetographs (Chow, 1995).
     """
     PREDEFINED_STORMS = SHYETO_DATA.columns
 
     def __init__(self, storm_type: str, timestep: float,
                  rain24: float | ArrayLike = None, idf: ArrayLike = None,
                  idf_scaling: bool = True, duration_limits: ArrayLike = (0, 72),
-                 storm_kwargs: dict | None = None) -> None:
+                 **storm_kwargs) -> None:
         """
         Synthetic RainStorm builder
 
@@ -651,9 +612,9 @@ class RainStorm(IDF):
                 Defaults to 2.
             duration_limits (ArrayLike, optional): Min and max duration limits
                 in hours for the IDF curve. Defaults to (0, 72).
-            storm_kwargs (dict | None): Additional parameters depending on
-                  storm type.
-                - For predefined storms: No extra parameters needed.
+            **storm_kwargs: Additional parameters depending on storm type.
+                - For triangular: Optional peak_time_ratio (float) in hours.
+                - For alternating_block: No extra parameters needed.
                 - For theoretical design methods: No extra parameters needed.
                 - For SciPy distributions: `loc`, `scale`, and shape params.
         """
@@ -669,7 +630,8 @@ class RainStorm(IDF):
             self.pr_dimless = self._scipy_hyetograph(storm_type,
                                                      **storm_kwargs)
             self._pr_dimless_cum = self.pr_dimless.cumsum()
-        elif storm_type in ['alternating_block', 'instant_intensity']:
+        elif storm_type in ['triangular', 'alternating_block',
+                            'instant_intensity']:
             if idf_scaling is False:
                 raise ValueError(
                     "idf_scaling must be True for design storm methods.")
@@ -696,6 +658,14 @@ class RainStorm(IDF):
         self.storm_type = storm_type
         self.storm_kwargs = storm_kwargs
 
+        # Initialize additional attributes
+        self.time = None
+        self.pr = None
+        self.pr_cum = None
+        self.pr_depth = None
+        self.storm_duration = None
+        self.storm_onset_time = None
+
     def copy(self) -> Type['RainStorm']:
         """
         Create a deep copy of the class itself
@@ -712,8 +682,10 @@ class RainStorm(IDF):
         base_time = np.arange(0, total_duration + dt_eps, self.timestep)
         extended_time = np.arange(0, total_duration + tail_duration + dt_eps,
                                   self.timestep)
-        base_time = xr.DataArray(base_time, dims=['time'])
-        extended_time = xr.DataArray(extended_time, dims=['time'])
+        base_time = xr.DataArray(base_time, dims=['time'],
+                                 coords={'time': base_time})
+        extended_time = xr.DataArray(extended_time, dims=['time'],
+                                     coords={'time': extended_time})
         return base_time, extended_time
 
     def _shift_timeseries_1d(self, arr: np.ndarray,
@@ -735,8 +707,8 @@ class RainStorm(IDF):
                                     output_core_dims=[['time']],
                                     vectorize=True)
         return da_shifted.transpose(*da.dims)
-# -------------------- IDF functionality and design storms ------------------- #
 
+# -------------------- IDF functionality and design storms ------------------- #
     def fit(self, parametric: bool = True, idf_model_type: int = 2,
             bell_threshold: float = 1, **kwargs) -> Type['RainStorm']:
         """
@@ -771,34 +743,7 @@ class RainStorm(IDF):
             self.dcoefs = self._rdf2dcoef(self.rdf)
         return self
 
-    def _alternating_block(self, base_time: np.ndarray,
-                           xr_duration: xr.DataArray) -> tuple[xr.DataArray,
-                                                               xr.DataArray]:
-        """
-        Generate cumulative and incremental rainfall using the alternating
-        block method.
-        """
-        dims = {dim: coord for dim, coord in xr_duration.coords.items()}
-        time = base_time.expand_dims(dims)
-        time = time.transpose('time', *dims.keys())
-        time = time.clip(0, xr_duration)
-        pr_cum = self._evaluate_rdf(time, interp_kwargs={})
-        pr_cum = pr_cum.reset_coords(drop=True)
-        pr = pr_cum.diff('time').pad(time=(1, 0), constant_values=0)
-        pr = pr / self.timestep
-
-        pr = xr.apply_ufunc(alternating_block_sort,
-                            pr.where(pr > 0),
-                            input_core_dims=[['time']],
-                            output_core_dims=[['time']],
-                            vectorize=True).transpose('time', *dims.keys())
-        pr = pr.pad(time=(1, 0), constant_values=0)
-        pr = pr.fillna(0).isel(time=slice(None, -1))
-        pr_cum = pr.cumsum('time') * self.timestep
-        return pr_cum, pr
-
-# ---------------------- Synthetic Hyetograph Generators --------------------- #
-
+# -------------------- Synthetic Hyetograph functionality -------------------- #
     def _predefined_hyetograph(self, kind: str) -> pd.Series:
         """
         Synthetic hyetograph generator function for predefined synthetic
@@ -831,7 +776,7 @@ class RainStorm(IDF):
 
     def _dimensionless_shyeto(self, base_time: np.ndarray,
                               xr_duration: xr.DataArray,
-                              interp_kwargs: dict) -> xr.DataArray:
+                              **interp_kwargs) -> xr.DataArray:
         """
         Interpolate cached dimensionless cumulative hyetograph over
         normalized time per cell.
@@ -841,8 +786,7 @@ class RainStorm(IDF):
             dims=['source_time'],
             coords={'source_time': self.pr_dimless.index.values}
         )
-        norm_time = (xr.DataArray(base_time, dims=['time']) /
-                     xr_duration).clip(0, 1)
+        norm_time = (base_time / xr_duration).clip(0, 1)
         shyeto = source_cum.interp(source_time=norm_time, **interp_kwargs)
 
         # Normalize final value to 1.0 to ensure pr_cum matches rainfall
@@ -895,7 +839,7 @@ class RainStorm(IDF):
         xr_onset_time, _ = xr.broadcast(xr_onset_time, xr_target_duration)
         return (xr_target_duration, xr_onset_time)
 
-    def _evaluate_rdf(self, xr_duration: xr.DataArray, interp_kwargs: dict
+    def _evaluate_rdf(self, xr_duration: xr.DataArray, **interp_kwargs
                       ) -> xr.DataArray:
         """Evaluate RDF curve at target durations."""
         dmin, dmax = self.duration_limits
@@ -904,7 +848,82 @@ class RainStorm(IDF):
                 f"Cannot compute storm for durations outside IDF curve bounds "
                 f"[{dmin}, {dmax}] hr. Requested: [{float(xr_duration.min())}, "
                 f"{float(xr_duration.max())}] hr")
-        return self.rdf.interp(duration=xr_duration, **interp_kwargs)
+        rain = self.rdf.interp(duration=xr_duration, **interp_kwargs)
+        rain = rain.reset_coords(drop=True)
+        return rain
+
+    def _build_triangular(self, base_time: np.ndarray,
+                          xr_duration: xr.DataArray, peak_time_ratio: float,
+                          **interp_kwargs) -> tuple[xr.DataArray,
+                                                    xr.DataArray]:
+        """
+        Generate cumulative and incremental rainfall using the triangular
+        hyetograph method.
+        """
+        if peak_time_ratio is None:
+            peak_time_ratio = 0.5  # Default to symmetric triangle
+        if not (0 < peak_time_ratio < 1):
+            raise ValueError(
+                "peak_time_ratio must be between 0 and 1 (dimensionless)")
+        pp = self._evaluate_rdf(xr_duration, **interp_kwargs)
+        prate = 2 * pp / xr_duration
+        ptime = abs(xr_duration * peak_time_ratio - base_time).idxmin('time')
+
+        # Build hyetograph
+        pr = xr.full_like(prate, np.nan).copy().expand_dims(
+            {'time': base_time}).copy()
+        pr.loc[{'time': ptime}] = prate
+        pr.loc[{'time': 0}] = 0
+        pr.loc[{'time': xr_duration}] = 0
+        pr = pr.interpolate_na(dim='time', method='linear').fillna(0)
+        pr_depth = pr * self.timestep
+        pr_cum = pr_depth.cumsum('time')
+        return pr_cum, pr_depth, pr
+
+    def _build_altblock(self, base_time: np.ndarray,
+                        xr_duration: xr.DataArray,
+                        **interp_kwargs) -> tuple[xr.DataArray,
+                                                  xr.DataArray]:
+        """
+        Generate cumulative and incremental rainfall using the alternating
+        block method.
+        """
+        dims = {dim: coord for dim, coord in xr_duration.coords.items()}
+        time = base_time.expand_dims(dims)
+        time = time.transpose('time', *dims.keys())
+        time = time.clip(0, xr_duration)
+        pr_cum = self._evaluate_rdf(time, **interp_kwargs)
+        pr_depth = pr_cum.diff('time').pad(time=(1, 0), constant_values=0)
+        pr = pr_depth / self.timestep
+
+        pr = xr.apply_ufunc(alternating_block_sort,
+                            pr.where(pr > 0),
+                            input_core_dims=[['time']],
+                            output_core_dims=[['time']],
+                            vectorize=True).transpose('time', *dims.keys())
+        pr = pr.pad(time=(1, 0), constant_values=0)
+        pr = pr.fillna(0).isel(time=slice(None, -1))
+        pr_depth = pr * self.timestep
+        pr_cum = pr_depth.cumsum('time')
+        return pr_cum, pr_depth, pr
+
+    def _build_shyeto(self, base_time: np.ndarray,
+                      xr_duration: xr.DataArray,
+                      **interp_kwargs) -> tuple[xr.DataArray, xr.DataArray]:
+        """
+        Build cumulative and incremental rainfall based on dimensionless
+        hyetograph scaling.
+        """
+        shyeto = self._dimensionless_shyeto(base_time,
+                                            xr_duration,
+                                            **interp_kwargs)
+        xr_rainfall = self._evaluate_rdf(xr_duration, **interp_kwargs)
+        pr_cum = shyeto * xr_rainfall
+
+        # Differentiate to get precipitation rate
+        pr_depth = pr_cum.diff('time').pad(time=(1, 0), constant_values=0)
+        pr = pr_depth / self.timestep
+        return pr_cum, pr_depth, pr
 
     def compute(self,
                 target_duration: int | float | ArrayLike,
@@ -940,36 +959,45 @@ class RainStorm(IDF):
         total_duration += float(xr_onset_time.max().item())
         base_time, extended_time = self._build_time_axes(total_duration,
                                                          tail_duration)
-        if self.storm_type in ['alternating_block', 'instant_intensity']:
-            if self.storm_type == 'alternating_block':
-                pr_cum, pr = self._alternating_block(base_time,
-                                                     xr_target_duration)
-                pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
-                pr = self._apply_onset_time(pr, xr_onset_time)
-            else:
-                raise NotImplementedError(
-                    f"{self.storm_type} method not yet implemented.")
+
+        # Compute cumulative and incremental rainfall
+        if self.storm_type in ['instant_intensity']:
+            raise NotImplementedError(
+                f"{self.storm_type} method not yet implemented.")
+        elif self.storm_type == 'triangular':
+            r = self.storm_kwargs.get('peak_time_ratio')
+            pr_cum, pr_depth, pr = self._build_triangular(base_time,
+                                                          xr_target_duration,
+                                                          peak_time_ratio=r,
+                                                          **interp_kwargs)
+        elif self.storm_type == 'alternating_block':
+            pr_cum, pr_depth, pr = self._build_altblock(base_time,
+                                                        xr_target_duration,
+                                                        **interp_kwargs)
         else:
-            shyeto = self._dimensionless_shyeto(base_time, xr_target_duration,
-                                                interp_kwargs)
-            xr_rainfall = self._evaluate_rdf(xr_target_duration, interp_kwargs)
-            pr_cum = shyeto * xr_rainfall
+            pr_cum, pr_depth, pr = self._build_shyeto(base_time,
+                                                      xr_target_duration,
+                                                      **interp_kwargs)
 
-            # Apply onset time
-            pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
+        # Apply onset time shifts
+        pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
+        pr_depth = self._apply_onset_time(pr_depth, xr_onset_time)
+        pr = self._apply_onset_time(pr, xr_onset_time)
 
-            # Differentiate to get precipitation rate
-            pr = pr_cum.diff('time') / self.timestep
-            pr = pr.pad(time=(1, 0), constant_values=0)
-
+        # Reindex to extended time axis and fill NaNs with 0
         pr = pr.reindex({'time': extended_time}).fillna(0)
+        pr_depth = pr_depth.reindex({'time': extended_time}).fillna(0)
         pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
 
+        # Assign names and attributes
         pr.name, pr.attrs = 'pr', {
             'standard_name': 'precipitation rate', 'units': 'mm/hr'}
 
         pr_cum.name, pr_cum.attrs = 'pr_cum', {
             'standard_name': 'cumulative precipitation', 'units': 'mm'}
+
+        pr_depth.name, pr_depth.attrs = 'pr_depth', {
+            'standard_name': 'precipitation depth', 'units': 'mm'}
 
         # bias = pr.integrate('time') + pr_cum.isel(time=0, drop=True)
         # bias = abs(bias-self.rain24).max()
@@ -980,128 +1008,11 @@ class RainStorm(IDF):
         #         UserWarning
         #     )
 
+        # Update cached class attributes
+        self.time = pr.coords['time']
         self.pr = pr
         self.pr_cum = pr_cum
-        self.time = pr.coords['time']
+        self.pr_depth = pr_depth
+        self.storm_duration = target_duration
+        self.storm_onset_time = onset_time
         return self
-
-#     def _alternating_block_hyetograph(self,
-#                                       xr_rdf_curve: xr.DataArray,
-#                                       xr_duration: xr.DataArray,
-#                                       base_time: np.ndarray,
-#                                       interp_kwargs: dict
-#                                       ) -> xr.DataArray:
-#         """
-#         Generate hyetograph using the alternating block method.
-
-#         Algorithm:
-#         1. Interpolate RDF curve at cumulative time points
-#         2. Compute rain pulses by differencing cumulative rainfall
-#         3. Sort pulses using alternating block pattern
-#         4. Return as precipitation rate (mm/hr)
-
-#         Args:
-#             xr_rdf_curve: rainfall-duration curve with 'duration' dimension
-#             xr_duration: Target storm durations
-#             base_time: Time array for the storm
-#             interp_kwargs: Interpolation keyword arguments
-
-#         Returns:
-#             Precipitation rate array (mm/hr) with 'time' dimension
-#         """
-#         if 'duration' not in xr_rdf_curve.dims:
-#             raise ValueError(
-#                 "alternating_block method requires an RDF curve with "
-#                 "'duration' dimension. Use idf_curve parameter or "
-#                 "idf_scaling=True."
-#             )
-
-#         # Clip base_time to storm duration for each pixel
-#         time_da = xr.DataArray(base_time, dims=['time'],
-#                                coords={'time': base_time})
-#         # Clip time to duration, ensuring we don't exceed storm duration
-#         time_clipped = time_da.clip(0, xr_duration)
-
-#         # Interpolate RDF curve at cumulative time points
-#         pr_cum_pulses = xr_rdf_curve.interp(duration=time_clipped,
-#                                             **interp_kwargs)
-
-#         # Compute rain pulses by differencing
-#         # Use pad to prepend the first value, then diff to get pulses
-#         pr_cum_padded = pr_cum_pulses.pad(time=(1, 0), constant_values=0)
-#         pr_pulses = pr_cum_padded.diff('time')
-#         # Assign correct time coordinates
-#         pr_pulses = pr_pulses.assign_coords(time=base_time)
-
-#         # Convert to precipitation rate (mm/hr)
-#         pr_rate = pr_pulses / self.timestep
-
-#         # Apply alternating block sort along time dimension
-#         pr_alternated = xr.apply_ufunc(
-#             alternating_block_sort,
-#             pr_rate,
-#             input_core_dims=[['time']],
-#             output_core_dims=[['time']],
-#             vectorize=True,
-#             kwargs={'axis': 0}
-#         )
-
-#         # Restore time coordinate
-#         pr_alternated = pr_alternated.assign_coords(time=base_time)
-#         pr_alternated['time'].attrs = {'standard_name': 'time',
-#                                        'units': 'hr'}
-
-#         # Ensure time dimension is first (xr.apply_ufunc can reorder dims)
-#         all_dims = list(pr_alternated.dims)
-#         if 'time' in all_dims and all_dims[0] != 'time':
-#             all_dims.remove('time')
-#             all_dims.insert(0, 'time')
-#             pr_alternated = pr_alternated.transpose(*all_dims)
-
-#         return pr_alternated
-
-#     def _compute_alternating_block_storm(self,
-#                                          xr_duration: xr.DataArray,
-#                                          xr_onset_time: xr.DataArray,
-#                                          base_time: np.ndarray,
-#                                          extended_time: np.ndarray,
-#                                          interp_kwargs: dict
-#                                          ) -> tuple[xr.DataArray, xr.DataArray]:
-#         """
-#         Compute storm using alternating block method.
-#         Returns pr and pr_cum with onset time already applied.
-#         """
-#         # Generate precipitation rate directly from RDF curve
-#         pr = self._alternating_block_hyetograph(
-#             self.rdf_curve, xr_duration, base_time, interp_kwargs
-#         )
-
-#         # Compute cumulative from rate
-#         pr_cum = (pr * self.timestep).cumsum('time')
-
-#         # Get expected total rainfall from RDF curve at target duration
-#         expected_rainfall = self.rdf_curve.interp(
-#             duration=xr_duration, **interp_kwargs)
-
-#         # Normalize to ensure exact mass conservation
-#         # Avoid division by zero for cases where there's no rainfall
-#         final_cum = pr_cum.isel(time=-1, drop=True)
-#         scale_factor = expected_rainfall / final_cum.where(final_cum != 0, 1)
-#         pr_cum = pr_cum * scale_factor
-
-#         # Apply onset time to cumulative
-#         pr_cum = self._apply_onset_time(pr_cum, xr_onset_time)
-
-#         # Recompute rate from shifted cumulative and extend time axis
-#         pr = pr_cum.diff('time') / self.timestep
-#         pr = pr.reindex({'time': extended_time}).fillna(0)
-#         pr.name = 'pr'
-#         pr.attrs = {'standard_name': 'precipitation rate', 'units': 'mm/hr'}
-
-#         # Extend cumulative time axis
-#         pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
-#         pr_cum.name = 'pr_cum'
-#         pr_cum.attrs = {
-#             'standard_name': 'cumulative precipitation', 'units': 'mm'}
-
-#         return pr, pr_cum

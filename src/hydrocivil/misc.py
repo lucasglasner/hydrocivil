@@ -451,6 +451,39 @@ def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
 # ----------------------------------- other ---------------------------------- #
 
 
+def alternating_block_sort(arr: ArrayLike):
+    """
+    Sorts a 1D array in an alternating block pattern.
+
+    Args:
+        arr (ArrayLike): Input 1D array to be rearranged.
+
+    Returns:
+        rearranged (ArrayLike): Array with values rearranged in alternating
+            block pattern, with the highest values placed near the center.
+    """
+    arr = np.asarray(arr).flatten()  # Ensure it's 1D
+    nan_mask = np.isnan(arr)
+    arr = arr[~nan_mask]
+
+    # Sort in descending order
+    arr_sorted = np.sort(arr)[::-1]
+
+    n = arr_sorted.size
+    rearranged = np.zeros_like(arr_sorted)
+
+    # Fill the rearranged array with alternating block pattern
+    for i in range(n):
+        pos = n // 2 + (-1) ** i * ((i + 1) // 2)
+        rearranged[pos] = arr_sorted[i]
+
+    # Place nan values at the end
+    if np.any(nan_mask):
+        rearranged = np.pad(rearranged, (0, nan_mask.sum()), 'constant',
+                            constant_values=np.nan)
+    return rearranged
+
+
 def rsquared(y_true, y_pred):
     """
     Calculate the R-squared (coefficient of determination) metric.
