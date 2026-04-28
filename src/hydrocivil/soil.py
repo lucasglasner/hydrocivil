@@ -462,9 +462,9 @@ def SCS_Abstractions(pr: int | float | ArrayLike,
 
 # ------------------------------ Soil layer API ----------------------------- #
 
-class SoilLayer:
+class SurfaceLoss:
     """
-    Single-layer soil abstraction model. Provides infiltration/losses for
+    Surface abstraction model. Provides infiltration/losses for
     a given precipitation time series using supported methods.
 
     Supported methods: SCS, Horton, Philip, GreenAmpt.
@@ -533,7 +533,7 @@ class SoilLayer:
 
     def infiltrate(self, pr: xr.DataArray,
                    time: ArrayLike | None = None,
-                   **kwargs: Any) -> Type['SoilLayer']:
+                   **kwargs: Any) -> Type['SurfaceLoss']:
         """
         Compute infiltration / losses for a precipitation rate series.
 
@@ -543,7 +543,7 @@ class SoilLayer:
             **kwargs: Parameters for the selected routine.
 
         Returns:
-            Updated SoilLayer instance with infr and pr_eff set.
+            Updated SurfaceLoss instance with infr and pr_eff set.
         """
         if 'time' not in pr.dims:
             raise ValueError("Precipitation array must have 'time' dimension")

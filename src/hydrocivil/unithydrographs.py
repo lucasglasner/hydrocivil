@@ -316,8 +316,8 @@ def SUH_Gray(area: float, mriverlen: float, meanslope: float,
     coordinates of the unit hydrograph. y is the model parameter and gamma
     is the gamma function.
 
-    Based on some regression analysis Gray's method says that the y parameter
-    is related to the peak time t_p by the equation:
+    Based on some regression analysis (?) Gray's method says that the y
+    parameter is related to the peak time t_p by the equation:
 
         t_p / y = (2.676 / t_p + 0.0139)^(-1)
         y = 2.676 + 0.0139 * t_p
