@@ -438,8 +438,8 @@ def terrain_exposure(aspect: xr.DataArray,
 # -------------------- Concentration time for rural basins ------------------- #
 
 
-def tc_SCS(mriverlen: int | float, meanslope: int | float,
-           cn: int | float, **kwargs: Any) -> float:
+def tc_SCS(mriverlen: float, meanslope: float,
+           cn: float, **kwargs: Any) -> float:
     """
     USA Soil Conservation Service (SCS) method.
     Valid for rural basins ¿?.
@@ -466,7 +466,7 @@ def tc_SCS(mriverlen: int | float, meanslope: int | float,
     return Tc
 
 
-def tc_kirpich(mriverlen: int | float, meanslope: int | float,
+def tc_kirpich(mriverlen: float, meanslope: float,
                **kwargs: Any) -> float:
     """
     Kirpich equation method.
@@ -487,8 +487,8 @@ def tc_kirpich(mriverlen: int | float, meanslope: int | float,
     return Tc
 
 
-def tc_giandotti(mriverlen: int | float, hmean: int | float,
-                 hmin: int | float, area: int | float,
+def tc_giandotti(mriverlen: float, hmean: float,
+                 hmin: float, area: float,
                  validate: bool = True,
                  **kwargs: Any) -> float:
     """
@@ -525,8 +525,8 @@ def tc_giandotti(mriverlen: int | float, hmean: int | float,
             return Tc*60
 
 
-def tc_california(mriverlen: int | float, hmax: int | float,
-                  hmin: int | float, **kwargs: Any) -> float:
+def tc_california(mriverlen: float, hmax: float,
+                  hmin: float, **kwargs: Any) -> float:
     """
     California Culverts Practice (1942) equation.
     Valid for mountain basins ¿?.
@@ -549,7 +549,7 @@ def tc_california(mriverlen: int | float, hmax: int | float,
     return Tc
 
 
-def tc_spain(mriverlen: int | float, meanslope: int | float,
+def tc_spain(mriverlen: float, meanslope: float,
              **kwargs: Any) -> float:
     """
     Equation of Spanish/Spain regulation.
@@ -569,22 +569,35 @@ def tc_spain(mriverlen: int | float, meanslope: int | float,
     return Tc
 
 
-def tc_bransbywilliams(area: int | float,
-                       mriverlen: int | float,
-                       meanslope: int | float) -> float:
+def tc_bransbywilliams(area: float,
+                       mriverlen: float,
+                       meanslope: float) -> float:
     """
     Calculates the concentration time (Tc) using the Bransby Williams formula.
 
     Args:
-        area (int | float): Drainage area in (km2).
-        mriverlen (int | float): Main river length in (km)
-        meanslope (int | float): Mean slope in m/m
+        area (float): Drainage area in (km2).
+        mriverlen (float): Main river length in (km)
+        meanslope (float): Mean slope in m/m
     Returns:
         Tc (float): Concentration time (minutes).
     """
     Tc = 14.46 * (mriverlen) / (meanslope ** 0.2) / (area ** 0.1)
     return Tc
 
+def tc_morgalilinsley(mriverlen: float, meanslope: float,
+                      manning: float, precipitation_rate: float,
+                      **kwargs: Any) -> float:
+    """
+    Linsley-Morgali equation method. Kinematic wave method ¿?.  
+
+    Reference:
+        ???
+    """
+    a = (mriverlen * manning) ** 0.6
+    b = (precipitation_rate ** 0.4) * (meanslope ** 0.3)
+    Tc = 420 * a / b
+    return Tc
 
 @np.vectorize
 def concentration_time(method: str, **kwargs: Any) -> float:
@@ -595,7 +608,8 @@ def concentration_time(method: str, **kwargs: Any) -> float:
     Args:
         method (str): Concentration time formula:
             Options:
-                California, Giandotti, Kirpich, SCS, Spain
+                California, Giandotti, Kirpich, SCS, Spain, BransbyWilliams,
+                MorgaliLinsley
         **kwargs are given to the respective concentration time formula
 
     Raises:
@@ -610,7 +624,8 @@ def concentration_time(method: str, **kwargs: Any) -> float:
         'Kirpich': tc_kirpich,
         'SCS': tc_SCS,
         'Spain': tc_spain,
-        'BransbyWilliams': tc_bransbywilliams
+        'BransbyWilliams': tc_bransbywilliams,
+        'MorgaliLinsley': tc_morgalilinsley
     }
 
     if method not in methods:
