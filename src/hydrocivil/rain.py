@@ -985,9 +985,9 @@ class RainStorm(IDF):
         pr = self._apply_onset_time(pr, xr_onset_time)
 
         # Reindex to extended time axis and fill NaNs with 0
-        pr = pr.reindex({'time': extended_time}).fillna(0)
-        pr_depth = pr_depth.reindex({'time': extended_time}).fillna(0)
-        pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
+        # pr = pr.reindex({'time': extended_time}).fillna(0)
+        # pr_depth = pr_depth.reindex({'time': extended_time}).fillna(0)
+        # pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
 
         # Assign names and attributes
         pr.name, pr.attrs = 'pr', {
