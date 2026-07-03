@@ -28,8 +28,7 @@ from .unithydrographs import LumpedUnitHydrograph as SUH
 from .geomorphology import basin_outlet, process_gdaldem
 from .geomorphology import terrain_exposure, get_main_river
 from .global_vars import GDAL_EXCEPTIONS
-from .soil import (cn_correction, SCS_EffectiveRainfall,
-                   SCS_EquivalentCurveNumber)
+from .surface import LandSurface
 from .graphical import add_colorbar, centergraph2polygon
 
 if GDAL_EXCEPTIONS:
@@ -39,7 +38,7 @@ else:
 # ---------------------------------------------------------------------------- #
 
 
-class HydroDEM:
+class Terrain:
     """
     A class for processing and storing a Digital Elevation Model (DEM) for
     hydrological analysis.
@@ -47,7 +46,7 @@ class HydroDEM:
 
     def __init__(self, dem: xr.DataArray | xr.Dataset, **kwargs):
         """
-        Initializes the HydroDEM class with a given Digital Elevation Model.
+        Initializes the Terrain class with a given Digital Elevation Model.
 
         Args:
             dem (xr.DataArray | xr.Dataset): A 2D xr.DataArray representing
@@ -61,7 +60,7 @@ class HydroDEM:
         # Set nodata value for all variables in the dataset
         for var in self.dem.data_vars:
             self.dem[var] = self.dem[var].rio.write_nodata(np.nan)
-        self.mask_raster = ~np.isnan(self.dem['elevation'])  # No data mask
+        self.mask_raster = ~self.dem['elevation'].isnull()  # No data mask
         self.mask_raster.name = 'mask'
         self.totalcells = self.mask_raster.sum().item()  # Total valid cells
         self.rivers = None
@@ -104,7 +103,6 @@ class HydroDEM:
         params['hmin'] = self.dem.elevation.min().item()
         params['hmax'] = self.dem.elevation.max().item()
         params['hmean'] = self.dem.elevation.mean().item()
-        params['hmed'] = self.dem.elevation.median().item()
         params['deltaH'] = params['hmax']-params['hmin']
         params['deltaHm'] = params['hmean']-params['hmin']
         params['meanslope'] = self.dem.slope.mean().item()
@@ -136,7 +134,11 @@ class HydroDEM:
             - The resulting rasters are merged with the existing DEM data.
 
         """
-        from .geomorphology import wbDEMpreprocess
+        from .global_vars import HAS_WHITEBOX
+        if not HAS_WHITEBOX:
+            raise ImportError('whitebox_workflows package is required for '
+                              'flow preprocessing.')
+        from .wb_tools import wbDEMpreprocess
         rasters, rivers = wbDEMpreprocess(self.dem.elevation,
                                           return_streams=return_streams,
                                           raster2xarray=True,
@@ -166,6 +168,10 @@ class HydroDEM:
         Returns:
             pd.Series: Exposure distribution.
         """
+        if 'aspect' not in self.dem.variables:
+            raise RuntimeError('Aspect raster not found in DEM dataset. \
+                                Please run the terrain preprocessing method \
+                                first.')
         return terrain_exposure(self.dem.aspect, **kwargs)
 
     def get_hypsometric_curve(self, bins: str | int | float = 'auto',
@@ -218,155 +224,7 @@ class HydroDEM:
         return interp_func(height).item()
 
 
-class HydroLULC:
-    """
-    A class for processing and analyzing Land Use Land Cover (LULC) for
-    hydrological analysis.
-    """
-
-    def __init__(self, lulc: xr.Dataset | xr.DataArray, **kwargs):
-        """
-        Initializes the HydroLULC class with a given land cover dataset.
-
-        Args:
-            lulc (xr.DataArray | xr.Dataset):
-                A 2D xarray.DataArray or xr.Dataset representing the digital
-                surface land cover properties. Might be a single 2D raster or
-                multiple rasters in a dataset.
-        """
-        if isinstance(lulc, xr.DataArray):
-            lulc = lulc.to_dataset(name=lulc.name)
-        for var in lulc.variables:
-            lulc[var] = lulc[var].squeeze().copy()
-            # lulc[var] = lulc[var].where(lulc[var] != -9999)
-
-        if 'cn' in lulc.variables:
-            if 'cn1' not in lulc.variables:
-                lulc['cn1'] = cn_correction(lulc['cn'], amc='I')
-            if 'cn2' not in lulc.variables:
-                lulc['cn2'] = cn_correction(lulc['cn'], amc='II')
-            if 'cn3' not in lulc.variables:
-                lulc['cn3'] = cn_correction(lulc['cn'], amc='III')
-            if 'amc' in kwargs.keys():
-                lulc['cn'] = cn_correction(lulc['cn'], amc=kwargs['amc'])
-        self.lulc = lulc
-
-    def _processrastercounts(self, raster: xr.DataArray,
-                             output_type: int = 1) -> pd.DataFrame:
-        """
-        Computes area distributions of rasters (% of the basin area with the
-        X raster property)
-        Args:
-            raster (xarray.DataArray): Raster with basin properties
-                (e.g land cover classes, soil types, etc)
-            output_type (int, optional): Output type:
-                Option 1:
-                    Returns a table with this format:
-                    +-------+----------+----------+
-                    | INDEX | PROPERTY | FRACTION |
-                    +-------+----------+----------+
-                    |     0 | A        |          |
-                    |     1 | B        |          |
-                    |     2 | C        |          |
-                    +-------+----------+----------+
-
-                Option 2:
-                    Returns a table with this format:
-                    +-------------+----------+
-                    |    INDEX    | FRACTION |
-                    +-------------+----------+
-                    | fPROPERTY_A |          |
-                    | fPROPERTY_B |          |
-                    | fPROPERTY_C |          |
-                    +-------------+----------+
-
-                Defaults to 1.
-        Returns:
-            counts (pandas.DataFrame): Results table
-        """
-        try:
-            counts = raster.to_series().value_counts()
-            counts = counts/counts.sum()
-            if output_type == 1:
-                counts = counts.reset_index().rename({raster.name: 'class'},
-                                                     axis=1)
-            elif output_type == 2:
-                counts.index = [f'f{raster.name}_{i}' for i in counts.index]
-                counts = pd.DataFrame(counts)
-            else:
-                raise RuntimeError(f'{output_type} must only be 1 or 2.')
-        except Exception as e:
-            counts = pd.DataFrame([], columns=[self.fid],
-                                  index=[0])
-            warnings.warn('Raster counting Error:'+f'{e}')
-        return counts
-
-    def _process_lulc(self, **kwargs):
-        """
-        Process the land use/land cover (LULC) data to compute area
-        distributions and other relevant statistics.
-        """
-        # LULC derived params
-        counts, averages = [], []
-        for var in self.lulc.data_vars:
-            var = self.lulc[var]
-            counts.append(self._processrastercounts(var, output_type=1))
-            try:
-                averages.append(var.mean().item())
-            except Exception as e:
-                averages.append(np.nan)
-                warnings.warn(f'Runtime Exception: {e}')
-        self.lulc_counts = pd.concat(counts, keys=self.lulc.data_vars)
-        self.lulc_counts = self.lulc_counts.stack().unstack(1).T
-        self.lulc_params = pd.Series(averages, index=self.lulc.data_vars)
-
-    def get_equivalent_curvenumber(self,
-                                   pr_range: Tuple[float, float] = (1., 1000.),
-                                   **kwargs: Any) -> pd.Series:
-        """
-        Calculate the dependence of the watershed curve number on precipitation
-        due to land cover heterogeneities.
-
-        This routine computes the equivalent curve number for a heterogeneous
-        basin as a function of precipitation. It takes into account the
-        distribution of curve numbers within the basin and the corresponding
-        effective rainfall for a range of precipitation values.
-
-        Args:
-            pr_range (tuple): Minimum and maximum possible precipitation (mm).
-            **kwargs: Additional keyword arguments to pass to the
-                SCS_EffectiveRainfall and SCS_EquivalentCurveNumber routine.
-
-        Returns:
-            pd.Series: A pandas Series representing the equivalent curve number
-                as a function of precipitation, where the index corresponds to
-                precipitation values and the values represent the equivalent
-                curve number.
-        """
-        # Precipitation range
-        pr = np.linspace(pr_range[0], pr_range[1], 1000)
-        pr = np.expand_dims(pr, axis=-1)
-
-        # Curve number counts
-        cn_counts = self._processrastercounts(self.lulc.cn)
-        weights, cn_values = cn_counts['counts'].values, cn_counts['cn'].values
-        cn_values = np.expand_dims(cn_values, axis=-1)
-
-        # Broadcast curve number and pr arrays
-        broad = np.broadcast_arrays(cn_values, pr.T)
-
-        # Get effective precipitation
-        pr_eff = SCS_EffectiveRainfall(pr=broad[1], cn=broad[0], **kwargs)
-        pr_eff = (pr_eff.T * weights).sum(axis=-1)
-
-        # Compute equivalent curve number for hetergeneous basin
-        curve = SCS_EquivalentCurveNumber(pr[:, 0], pr_eff, **kwargs)
-        curve = pd.Series(curve, index=pr[:, 0])
-        curve = curve.sort_index()
-        return curve
-
-
-class RiverBasin(HydroDEM, HydroLULC):
+class RiverBasin(Terrain, LandSurface):
     """
     The RiverBasin class represents a hydrological basin and provides methods
     to compute various geomorphological, hydrological, and terrain properties.
@@ -377,19 +235,20 @@ class RiverBasin(HydroDEM, HydroLULC):
 
     def __init__(self, basin: gpd.GeoSeries | gpd.GeoDataFrame,
                  dem: xr.DataArray | xr.Dataset,
-                 lulc: xr.DataArray | xr.Dataset,
+                 lulc: xr.DataArray | xr.Dataset = None,
                  fid: str | int | float = None,
                  rivers: gpd.GeoSeries | gpd.GeoDataFrame = gpd.GeoDataFrame(),
                  match_kwargs={},
                  **kwargs) -> None:
         """
-        Initialize the RiverBasin with basin polygon, DEM, LULC, and rivers.
+        Initialize RiverBasin with at least a basin polygon and a DEM.
+        Optionally LULC rasters and river lines can be provided.
 
         Args:
             basin (gpd.GeoSeries | gpd.GeoDataFrame): Watershed polygon.
             dem (xr.DataArray | xr.Dataset): Digital elevation model.
-            lulc (xr.DataArray | xr.Dataset): Land cover properties as a 2D
-                xarray.DataArray or xr.Dataset.
+            lulc (xr.DataArray | xr.Dataset, optional): Land cover properties
+                as a 2D xarray.DataArray or xr.Dataset. Defaults to None.
             fid (str | int | float, optional): Feature ID for the basin.
                 Defaults to None (generates a random ID).
             rivers (gpd.GeoSeries | gpd.GeoDataFrame, optional): River network
@@ -404,11 +263,14 @@ class RiverBasin(HydroDEM, HydroLULC):
             self.fid = 'Basin_'+f'{np.random.randint(1e6)}'.zfill(6)
 
         # Init parent constructor
-        HydroDEM.__init__(self, dem=dem, **kwargs)
-        HydroLULC.__init__(self, lulc=lulc, **kwargs)
+        Terrain.__init__(self, dem=dem, **kwargs)
+        if lulc is not None:
+            LandSurface.__init__(self, lulc=lulc)
 
-        # Match grids
-        self._matchgrids(**match_kwargs)
+            # Match grids
+            self._matchgrids(**match_kwargs)
+        else:
+            self.lulc = None
 
         # Init vector data
         self.basin = basin.copy()                   # Basin polygon
@@ -417,10 +279,16 @@ class RiverBasin(HydroDEM, HydroLULC):
 
         # Init empty attributes
         self.main_river = gpd.GeoDataFrame()
-        self.dem_params = pd.DataFrame([], index=[self.fid], dtype=object)
-        self.lulc_params = pd.DataFrame([], index=[self.fid], dtype=object)
-        self.flow_params = pd.DataFrame([], index=[self.fid], dtype=object)
-        self.geoparams = pd.DataFrame([], columns=[self.fid], dtype=object)
+        self.dem_params = pd.DataFrame([], index=[self.fid])
+        self.lulc_params = pd.DataFrame([], index=[self.fid])
+        self.flow_params = pd.DataFrame([], index=[self.fid])
+        self.geoparams = pd.DataFrame([], columns=[self.fid])
+
+    def copy(self) -> Type['RiverBasin']:
+        """
+        Create a deep copy of the class itself
+        """
+        return deepcopy(self)
 
     def _matchgrids(self, **kwargs):
         """
@@ -428,7 +296,8 @@ class RiverBasin(HydroDEM, HydroLULC):
         digital elevation model (DEM) grid. If the grids do not share the same
         spatial properties, the LULC raster is reprojected to match the DEM
         using rasterio's `reproject_match` method. Additional reprojection
-        parameters can be passed via keyword arguments.
+        parameters can be passed via keyword arguments, however by default the
+        algorithm uses nearest neighbor resampling.
 
         Parameters
         ----------
@@ -445,12 +314,6 @@ class RiverBasin(HydroDEM, HydroLULC):
                                                           **kwargs)
                 nlulc.append(nvar)
         self.lulc = xr.merge(nlulc)
-
-    def copy(self) -> Type['RiverBasin']:
-        """
-        Create a deep copy of the class itself
-        """
-        return deepcopy(self)
 
     def set_parameter(self, index: str | list,
                       data: Any | list) -> Type['RiverBasin']:
@@ -496,18 +359,23 @@ class RiverBasin(HydroDEM, HydroLULC):
             oy, ox = self.basin.outlet_y.item(), self.basin.outlet_x.item()
 
         # General parameters
+        area = self.basin.area.item()
+        resolution = area ** 0.5 / 50
+        perimeter = self.basin.boundary.simplify(resolution).length.item()
+        eqperimeter = 2 * np.sqrt(area * np.pi)
         self.set_parameter('EPSG', self.basin.crs.to_epsg())
-        self.set_parameter('area', self.basin.area.item()/1e6)
+        self.set_parameter('area', area/1e6)
         self.set_parameter('outlet_x', ox)
         self.set_parameter('outlet_y', oy)
         self.set_parameter('centroid_x', self.basin.centroid.x.item())
         self.set_parameter('centroid_y', self.basin.centroid.y.item())
-        self.set_parameter('perimeter', self.basin.boundary.length.item()/1e3)
+        self.set_parameter('perimeter', perimeter / 1e3)
+        self.set_parameter('gravelius_compactness', perimeter / eqperimeter)
 
         # Outlet to centroid
         outlet = Point(self.basin.outlet_x.item(), self.basin.outlet_y.item())
         out2cen = self.basin.centroid.distance(outlet)
-        self.set_parameter('out2centroidlen', out2cen.item()/1e3)
+        self.set_parameter('out2centroidlen', out2cen.item() / 1e3)
 
     def _process_terrain(self, **kwargs):
         """
@@ -531,10 +399,11 @@ class RiverBasin(HydroDEM, HydroLULC):
         distributions and other relevant statistics. Save average land class
         values in the parameters table. 
         """
-        super()._process_lulc(**kwargs)
-        self.lulc_params.name = self.fid
-        self.set_parameter(self.lulc_params.index.to_list(),
-                           self.lulc_params.to_list())
+        if self.lulc is not None:
+            super()._process_lulc(**kwargs)
+            self.lulc_params.name = self.fid
+            self.set_parameter(self.lulc_params.index.to_list(),
+                               self.lulc_params.to_list())
 
     def _process_flow(self, preprocess_rivers: bool = False,
                       carve_dist: float = 0, flow_method: str = 'rho8',
@@ -558,6 +427,12 @@ class RiverBasin(HydroDEM, HydroLULC):
                                   facc_threshold=facc_threshold,
                                   **kwargs)
 
+        if self.rivers is None or self.rivers.empty:
+            warnings.warn('No river network found. Please provide a river '
+                          'network or set preprocess_rivers=True to compute '
+                          'it from the DEM.')
+            return
+
         # Main river
         mainriver = get_main_river(self.rivers)
         self.main_river = mainriver
@@ -566,32 +441,27 @@ class RiverBasin(HydroDEM, HydroLULC):
         mriverlen = self.main_river.length.sum()/1e3
         if mriverlen.item() != 0:
             mriverlen = mriverlen.item()
-            mriverslope = raster_cross_section(self.dem.slope,
-                                               mainriver).mean().item()
+            mriverslope = raster_cross_section(self.dem.slope, mainriver)
+            mriverslope = mriverslope.mean().item()
         else:
             mriverlen = np.nan
             mriverslope = np.nan
 
         cumlen = self.rivers.length.sum() / 1e3
         area = self.geoparams.loc['area'].item()
-        perim = self.geoparams.loc['perimeter'].item()
-        eqperim = 2*np.pi*np.sqrt(area/np.pi)
-
         self.flow_params = pd.Series([])
-        self.flow_params['mriverlen'] = mriverlen
         self.flow_params['mriverslope'] = mriverslope
+        self.flow_params['mriverlen'] = mriverlen
         self.flow_params['drainage_density'] = cumlen/area
-        self.flow_params['gravelius_compactness'] = perim/eqperim
-        self.flow_params['horton_shape'] = area/mriverlen**2
         self.flow_params.name = self.fid
         self.set_parameter(self.flow_params.index.to_list(),
                            self.flow_params.to_list())
 
     def compute_params(self, preprocess_rivers=False,
                        geography_kwargs: dict = {},
-                       dem_kwargs: dict = {},
+                       terrain_kwargs: dict = {},
                        lulc_kwargs: dict = {},
-                       river_network_kwargs: dict = {}) -> pd.DataFrame:
+                       flow_kwargs: dict = {}) -> pd.DataFrame:
         """
         Compute basin geomorphological properties:
 
@@ -599,32 +469,35 @@ class RiverBasin(HydroDEM, HydroLULC):
                See self._process_geography.
             2) Land cover properties: average land cover class values and
                percentage of area belonging to each class.
-               See HydroLULC._process_lulc.
+               See LULC._process_lulc.
             3) Terrain properties: DEM-derived properties like minimum,
                maximum, or mean height, etc.
-               See HydroDEM._process_terrain.
+               See Terrain._process_terrain.
             4) Flow derived properties: Main river length using graph theory,
                drainage density, and shape factor.
                See src.geomorphology.get_main_river.
 
         Args:
-            dem_kwargs (dict, optional): Additional arguments for the terrain
+            terrain_kwargs (dict, optional): Additional arguments for the terrain
                 preprocessing function. Defaults to {}.
             geography_kwargs (dict, optional): Additional arguments for the
                 geography preprocessing routine. Defaults to {}.
             lulc_kwargs (dict, optional): Additional arguments for the land
                 cover preprocessing routine. Defaults to {}.
-            river_network_kwargs (dict, optional): Additional arguments for the
+            flow_kwargs (dict, optional): Additional arguments for the
                 main river finding routine. Defaults to {}.
         """
         if self.geoparams.shape != (0, 1):
-            self.geoparams = pd.DataFrame([], columns=[self.fid], dtype=object)
+            self.geoparams = pd.DataFrame([], columns=[self.fid])
 
-        self._process_geography(**geography_kwargs)  # Geographical parameters
-        self._process_terrain(**dem_kwargs)  # Update terrain properties
-        self._process_lulc(**lulc_kwargs)  # Update land cover properties
-        self._process_flow(preprocess_rivers=preprocess_rivers,
-                           **river_network_kwargs)  # Flow derived params
+        # Geographical parameters
+        self._process_geography(**geography_kwargs)
+        # Update terrain properties
+        self._process_terrain(**terrain_kwargs)
+        # Flow derived params
+        self._process_flow(preprocess_rivers=preprocess_rivers, **flow_kwargs)
+        # Update land cover properties
+        self._process_lulc(**lulc_kwargs)
 
     def clip(self, poly_mask: gpd.GeoSeries | gpd.GeoDataFrame,
              hard: bool = False, **kwargs: Any):
@@ -645,11 +518,19 @@ class RiverBasin(HydroDEM, HydroLULC):
         self.mask_vector = self.basin.clip(poly_mask.geometry)
         self.mask_raster = rasterize(self.mask_vector, self.dem.elevation)
 
-        nwshed = RiverBasin(fid=self.fid,
-                            basin=self.mask_vector,
-                            dem=self.dem.where(self.mask_raster),
-                            lulc=self.lulc.where(self.mask_raster),
-                            rivers=self.rivers.clip(self.mask_vector))
+        basin_kwargs = {
+            'fid': self.fid,
+            'basin': self.mask_vector,
+            'dem': self.dem.where(self.mask_raster),
+        }
+        if self.lulc is not None:
+            basin_kwargs['lulc'] = self.lulc.where(self.mask_raster)
+        if self.rivers is not None and not self.rivers.empty:
+            nrivers = self.rivers.clip(self.mask_vector.geometry)
+            nrivers = nrivers[nrivers.geometry.geom_type.isin(
+                ['LineString', 'MultiLineString'])]
+            basin_kwargs['rivers'] = nrivers
+        nwshed = RiverBasin(**basin_kwargs)
         nwshed.compute_params(**kwargs)
         if hard:
             self.__dict__.update(nwshed.__dict__)
@@ -709,7 +590,7 @@ class RiverBasin(HydroDEM, HydroLULC):
             # Clip and save
             self.clip(nshp, **kwargs)
 
-    def SynthUnitHydro(self, method: str, **kwargs: Any) -> Type['RiverBasin']:
+    def SynthUnitHydro(self, method: str, **kwargs: Any):
         """
         Compute synthetic unit hydrograph for the basin.
 
@@ -737,10 +618,14 @@ class RiverBasin(HydroDEM, HydroLULC):
             RuntimeError: If using Chilean parameters and basin centroid lies
                 outside valid geographical regions.
         """
+        if 'mriverlen' not in self.geoparams.index:
+            text = 'Unit hydrograph models require basin flow parameters. '
+            text+= 'Run compute_params() with a valid river network first or '
+            text+= 'provide river parameters manually in geoparams attribute.'
+            raise RuntimeError(text)
         uh = SUH(method, self.geoparams[self.fid])
         uh = uh.compute(**kwargs)
-        self.unithydro = uh
-        return self
+        self.UnitHydro = uh
 
     def plot(self, show_rivers=False, show_mriver=True,
              figsize=(8, 8), cbar_kwargs={'label': 'Elevation (m)'},

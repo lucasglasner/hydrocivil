@@ -13,9 +13,9 @@
 
 # Core functionality
 from . import (
-    soil,
     channels,
     geomorphology,
+    surface,
     unithydrographs,
     rain,
     watersheds,
@@ -31,25 +31,25 @@ from . import (
 
 
 # Direct class imports
-from .watersheds import RiverBasin, HydroDEM
+from .watersheds import RiverBasin, Terrain
 from .rain import RainStorm
 from .reservoirs import Reservoir
 from .channels import RiverReach
 from .unithydrographs import LumpedUnitHydrograph
-from .wb_tools import wbe
+from .surface import LandSurface
 
-__version__ = "1.1.5"
+__version__ = "1.2.0"
 __author__ = "Lucas Glasner"
 __email__ = "lgvivanco96@gmail.com"
 __license__ = "MIT"
 
 from typing import List
 __all__: List[str] = [
-    'HydroDEM',
+    'Terrain',
+    'LandSurface',
     'RiverBasin',
     'LumpedUnitHydrograph',
     'RainStorm',
     'Reservoir',
     'RiverReach',
-    'wbe'
 ]

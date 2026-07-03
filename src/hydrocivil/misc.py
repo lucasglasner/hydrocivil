@@ -14,11 +14,13 @@ import numpy as np
 import geopandas as gpd
 import rioxarray as rxr
 import xarray as xr
+import warnings
 
 from osgeo import gdal, gdal_array
 from rasterio.features import shapes
 from rasterio.features import rasterize as riorasterize
-from shapely.geometry import shape, Point
+from shapely.geometry import shape, Point, Polygon, MultiPolygon
+from shapely import get_coordinates
 from scipy.interpolate import interp1d
 
 from typing import Tuple, Any
@@ -35,33 +37,61 @@ else:
 
 def minradius_from_centroid(polygon: gpd.GeoDataFrame):
     """
-    Return minimum radius (same units as input coords) of a circle centered at
-    the polygon centroid that encloses the polygon. Only works for polygons on a
-    projected coordinate system (i.e UTM).
+    Return the minimum radius of a circle centered at the polygon centroid
+    that completely encloses the polygon.
 
-    Args:
-      polygon (GeoDataFrame): Polygon geometry
-        Must be a single polygon (dissolved if multiple)
+    The radius is the maximum distance from the centroid to any polygon
+    vertex. Works for both Polygon and MultiPolygon geometries.
 
-    Returns:
-      radius (float): Maximum distance from centroid to polygon vertices
+    Parameters
+    ----------
+    polygon : GeoDataFrame, GeoSeries, Polygon or MultiPolygon
+        Input geometry. If a GeoDataFrame contains multiple rows, they are
+        dissolved into a single geometry.
+
+    Returns
+    -------
+    radius : float
+        Radius in the CRS units.
+
+    centroid : shapely.geometry.Point
+        Polygon centroid.
     """
-    if polygon.crs.is_geographic:
-        raise ValueError("CRS is geographic, use geodesic version")
 
-    polygon = polygon.dissolve()
-    centroid = polygon.centroid
+    # Extract geometry
+    if isinstance(polygon, gpd.GeoDataFrame):
+        if polygon.crs is not None and polygon.crs.is_geographic:
+            raise ValueError(
+                "CRS is geographic. Reproject to a projected CRS first."
+            )
+        geom = polygon.dissolve().geometry.iloc[0]
 
-    # collect coordinates from exterior and interiors (holes)
-    coords = list(polygon.boundary.iloc[0].coords)
+    elif isinstance(polygon, gpd.GeoSeries):
+        if polygon.crs is not None and polygon.crs.is_geographic:
+            raise ValueError(
+                "CRS is geographic. Reproject to a projected CRS first."
+            )
+        geom = polygon.unary_union
 
-    xs = np.array([c[0] for c in coords])
-    ys = np.array([c[1] for c in coords])
+    elif isinstance(polygon, (Polygon, MultiPolygon)):
+        geom = polygon
 
-    dx = xs - centroid.x.item()
-    dy = ys - centroid.y.item()
-    radius = float(np.sqrt(dx*dx + dy*dy).max())
-    return radius, centroid
+    else:
+        raise TypeError(
+            "polygon must be a GeoDataFrame, GeoSeries, Polygon or MultiPolygon."
+        )
+
+    centroid = geom.centroid
+
+    # Coordinates of every polygon vertex (exterior + holes + multipolygons)
+    coords = get_coordinates(geom)
+
+    dx = coords[:, 0] - centroid.x
+    dy = coords[:, 1] - centroid.y
+
+    radius = np.hypot(dx, dy).max()
+
+    return float(radius), centroid
 
 
 def raster_cross_section(raster: xr.DataArray, line: gpd.GeoSeries,
@@ -113,13 +143,67 @@ def raster_cross_section(raster: xr.DataArray, line: gpd.GeoSeries,
     return data
 
 
-def rasterize(vector: gpd.GeoDataFrame, raster: xr.DataArray) -> xr.DataArray:
+def raster_counts(raster: xr.DataArray,
+                  output_type: int = 1) -> pd.DataFrame:
+    """
+    Computes area distributions of rasters (% of the basin area with the
+    X raster property)
+    Args:
+        raster (xarray.DataArray): Raster with basin properties
+            (e.g land cover classes, soil types, etc)
+        output_type (int, optional): Output type:
+            Option 1:
+                Returns a table with this format:
+                +-------+----------+----------+
+                | INDEX | PROPERTY | FRACTION |
+                +-------+----------+----------+
+                |     0 | A        |          |
+                |     1 | B        |          |
+                |     2 | C        |          |
+                +-------+----------+----------+
+
+            Option 2:
+                Returns a table with this format:
+                +-------------+----------+
+                |    INDEX    | FRACTION |
+                +-------------+----------+
+                | fPROPERTY_A |          |
+                | fPROPERTY_B |          |
+                | fPROPERTY_C |          |
+                +-------------+----------+
+
+            Defaults to 1.
+    Returns:
+        counts (pandas.DataFrame): Results table
+    """
+    try:
+        counts = raster.to_series().value_counts()
+        counts = counts/counts.sum()
+        if output_type == 1:
+            counts = counts.reset_index().rename({raster.name: 'class'},
+                                                 axis=1)
+        elif output_type == 2:
+            counts.index = [f'f{raster.name}_{i}' for i in counts.index]
+            counts = pd.DataFrame(counts)
+        else:
+            raise RuntimeError(f'{output_type} must only be 1 or 2.')
+    except Exception as e:
+        if raster.name is None:
+            raster.name = 'raster'
+        counts = pd.DataFrame([], columns=[raster.name],
+                              index=[0])
+        warnings.warn('Raster counting Error:'+f'{e}')
+    return counts
+
+
+def rasterize(vector: gpd.GeoDataFrame, raster: xr.DataArray, **kwargs
+              ) -> xr.DataArray:
     """
     Rasterize a vector layer.
 
     Args:
         vector (GeoDataFrame): The vector layer to rasterize.
-        raster (xarray.DataArray): The reference raster to define the output
+        raster (xarray.DataArray): A reference raster to define the output
             shape and transform.
 
     Returns:
@@ -130,12 +214,15 @@ def rasterize(vector: gpd.GeoDataFrame, raster: xr.DataArray) -> xr.DataArray:
         out_shape=raster.shape,
         transform=raster.rio.transform(),
         fill=0,
-        dtype='uint8'
+        dtype='uint8',
+        **kwargs
     )
     mask_xarray = xr.DataArray(mask_array,
                                coords=raster.coords,
                                dims=raster.dims, name='mask')
-    return mask_xarray.astype(bool)
+    mask_xarray = mask_xarray.rio.write_crs(raster.rio.crs)
+    mask_xarray = mask_xarray.astype(bool)
+    return mask_xarray
 
 
 def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
@@ -146,7 +233,7 @@ def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
             have typical rioxarray attributes like da.rio.crs
             and da.rio.transform
         filter_areas (float, optional): Remove polygons with an area less than
-            filter areas. Defaults to 0.
+            the given value. Defaults to 0.
 
     Returns:
         (geopandas.GeoDataFrame): polygonized boolean raster
@@ -158,7 +245,10 @@ def polygonize(da: xr.DataArray, filter_areas: float = 0) -> gpd.GeoDataFrame:
             polygons.append(shape(s))
     polygons = gpd.GeoSeries(polygons)
     polygons = gpd.GeoDataFrame(geometry=polygons, crs=da.rio.crs)
-    polygons = polygons.where(polygons.area > filter_areas).dropna()
+
+    if filter_areas > 0:
+        polygons = polygons.where(polygons.area > filter_areas).dropna()
+
     return polygons
 
 
@@ -357,96 +447,6 @@ def sharegrids(ds1, ds2, dimnames={'x': 'x', 'y': 'y'}):
         return False
     return True
 
-# ----------------------------- resources access ----------------------------- #
-
-
-def load_swampy_data() -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame,
-                                xr.DataArray, xr.DataArray]:
-    """
-    Load base example data
-    Returns:
-        (tuple): (basin polygon, river network segments, dem, curve_number)
-    """
-    root_folder = os.path.dirname(os.path.abspath(__file__))
-    data_folder = os.path.join(root_folder, 'resources', 'RioGomez')
-    basin_path = os.path.join(data_folder, 'Cuenca_RioGomez_v0.shp')
-    rivers_path = os.path.join(data_folder, 'rnetwork_RioGomez_v0.shp')
-    dem_path = os.path.join(data_folder, 'DEM_ALOSPALSAR_RioGomez_v0.tif')
-    cn_path = os.path.join(data_folder, 'CurveNumber_RioGomez_v0.tif')
-
-    basin = gpd.read_file(basin_path)
-    rivers = gpd.read_file(rivers_path)
-    dem = rxr.open_rasterio(dem_path, masked=True).squeeze()
-    cn = rxr.open_rasterio(cn_path, masked=True).squeeze()
-    dem.name = 'elevation'
-    cn.name = 'cn'
-    return (basin, rivers, dem, cn)
-
-
-def load_steep_data() -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame,
-                               xr.DataArray, xr.DataArray]:
-    """
-    Load base example data
-    Returns:
-        (tuple): (basin polygon, river network segments, dem, curve_number)
-    """
-    root_folder = os.path.dirname(os.path.abspath(__file__))
-    data_folder = os.path.join(root_folder, 'resources', 'CNT2420_2')
-    basin_path = os.path.join(data_folder, 'CN-T-2420_2.shp')
-    rivers_path = os.path.join(data_folder, 'rnetwork.shp')
-    dem_path = os.path.join(data_folder, 'dem.tif')
-    cn_path = os.path.join(data_folder, 'cn.tif')
-
-    basin = gpd.read_file(basin_path)
-    rivers = gpd.read_file(rivers_path)
-    dem = rxr.open_rasterio(dem_path, masked=True).squeeze()
-    cn = rxr.open_rasterio(cn_path, masked=True).squeeze()
-    dem.name = 'elevation'
-    cn.name = 'cn'
-    return (basin, rivers, dem, cn)
-
-
-def load_urban_data() -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame,
-                               xr.DataArray, xr.DataArray]:
-    """
-    Load base example data
-    Returns:
-        (tuple): (basin polygon, river network segments, dem, curve_number)
-    """
-    root_folder = os.path.dirname(os.path.abspath(__file__))
-    data_folder = os.path.join(root_folder, 'resources', 'EsteroVDM')
-    basin_path = os.path.join(data_folder, 'EsteroVDM.gpkg')
-    rivers_path = os.path.join(data_folder, 'rnetwork.gpkg')
-    dem_path = os.path.join(data_folder, 'dem.tif')
-    cn_path = os.path.join(data_folder, 'cn.tif')
-
-    basin = gpd.read_file(basin_path)
-    rivers = gpd.read_file(rivers_path)
-    dem = rxr.open_rasterio(dem_path, masked=True).squeeze()
-    cn = rxr.open_rasterio(cn_path, masked=True).squeeze()
-    dem.name = 'elevation'
-    cn.name = 'cn'
-    return (basin, rivers, dem, cn)
-
-
-def load_example_data(kind: str = 'swampy') -> Tuple[gpd.GeoDataFrame,
-                                                     gpd.GeoDataFrame,
-                                                     xr.DataArray,
-                                                     xr.DataArray]:
-    """
-    Load base example data
-    Returns:
-        (tuple): (basin polygon, river network segments, dem, curve_number)
-    """
-    if kind == 'swampy':
-        return load_swampy_data()
-    elif kind == 'steep':
-        return load_steep_data()
-    elif kind == 'urban':
-        return load_urban_data()
-    else:
-        text = f"kind = {kind}, expected one of: 'swampy', 'steep', 'urban'"
-        raise RuntimeError(text)
 
 # ----------------------------------- other ---------------------------------- #
 

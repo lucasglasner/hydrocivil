@@ -13,239 +13,15 @@ import geopandas as gpd
 import xarray as xr
 import warnings
 
-from typing import Any, Tuple
+from typing import Any
 from osgeo import gdal, gdal_array
 from shapely.geometry import Point
+from shapely.ops import split as shapely_split
 import networkx as nx
 
 from .misc import gdal2xarray, xarray2gdal, rasterize
-from .soil import SCS_MaximumRetention
-from .wb_tools import (wbw, wbe, wbRaster2xarray, wbVector2geopandas,
-                       xarray2wbRaster)
+from .surface import SCS_MaximumRetention
 
-
-# ------------------------- DEM preprocessing methods ------------------------ #
-def wbDEMflow(dem_no_deps: wbw.Raster | xr.DataArray,
-              method: str = 'd8',
-              input_is_xarray: bool = False
-              ) -> Tuple[wbw.Raster | xr.DataArray, wbw.Raster | xr.DataArray]:
-    """
-    Given a depresionless DEM this function computes flow direction and 
-    flow accumulation with different methods.
-    Args:
-        dem_no_deps (wbw.Raster, xr.DataArray): Input depresionless DEM. 
-        flow_method (str, optional): Flow direction algorithm used for
-            computing flow direction and flow accumulation rasters. 
-            Defaults to 'd8'. Options include:
-                'd8', 'rho8', 'dinf', 'fd8', 'Mdinf', 'Quinn1995', 'Qin2007'.
-        input_is_xarray (bool, optional): Whether to transform the input
-            xarray object to a whitebox_workflows Raster. Defaults to False.
-
-    Raises:
-        ValueError: If given an unknown flow computation method.
-
-    Returns:
-        (tuple): flow direction raster, flow accumulation raster
-    """
-    if input_is_xarray:
-        dem_no_deps = xarray2wbRaster(dem_no_deps)
-
-    if method == 'd8':
-        fdir = wbe.d8_pointer(dem_no_deps)
-        facc = wbe.d8_flow_accum(fdir, input_is_pointer=True,
-                                 out_type='catchment area')
-    elif method == 'rho8':
-        fdir = wbe.rho8_pointer(dem_no_deps)
-        facc = wbe.rho8_flow_accum(fdir, input_is_pointer=True,
-                                   out_type='catchment area')
-    elif method == 'dinf':
-        fdir = wbe.dinf_pointer(dem_no_deps)
-        facc = wbe.dinf_flow_accum(fdir, input_is_pointer=True,
-                                   out_type='catchment area')
-    elif method == 'fd8':
-        fdir = wbe.fd8_pointer(dem_no_deps)
-        facc = wbe.fd8_flow_accum(dem_no_deps,
-                                  out_type='catchment area')
-    elif method == 'Mdinf':
-        fdir = wbe.dinf_pointer(dem_no_deps)
-        facc = wbe.mdinf_flow_accum(dem_no_deps,
-                                    out_type='catchment area')
-    elif method == 'Quinn1995':
-        fdir = wbe.fd8_pointer(dem_no_deps)
-        facc = wbe.quinn_flow_accumulation(dem_no_deps,
-                                           out_type='catchment area')
-    elif method == 'Qin2007':
-        fdir = wbe.fd8_pointer(dem_no_deps)
-        facc = wbe.qin_flow_accumulation(dem_no_deps,
-                                         out_type='catchment area')
-    else:
-        text = f"'{method}': Unknown flow direction method!"
-        raise ValueError(text)
-
-    # Compute flow path length
-    flen = wbe.downslope_flowpath_length(fdir)
-    if input_is_xarray:
-        fdir = wbRaster2xarray(fdir).to_dataset(name='fdir')
-        facc = wbRaster2xarray(facc).to_dataset(name='facc')
-        flen = wbRaster2xarray(flen).to_dataset(name='flen')
-    return fdir, facc, flen
-
-
-def wbDEMfill(dem: wbw.Raster | xr.DataArray,
-              input_is_xarray: bool = False,
-              carve_dist: float = 0,
-              fill_kws: dict = {},
-              breach_kws: dict = {}):
-    """
-
-    Args:
-        dem (wbw.Raster, xr.DataArray): Input digital elevation model.
-        input_is_xarray (bool, optional): Whether to transform the input
-            xarray object to a whitebox_workflows Raster. Defaults to False.
-        carve_dist (float, optional): Maximum distance to carve when breaching.
-            Defaults to 0.
-        fill_kws (dict, optional): Additional arguments for the fill
-            depressions method.
-        breach_kws (dict, optional): Additional arguments for the breach
-            depressions method.
-
-    Returns:
-        (tuple): smoothed DEM raster, hillshade raster, sinks raster and
-                 depresionless DEM raster.
-    """
-    if input_is_xarray:
-        dem = xarray2wbRaster(dem)
-
-    # Compute sinks
-    sinks = wbe.sink(dem)
-
-    # Create the depressionless DEM
-    if carve_dist != 0:
-        dem_no_deps = wbe.breach_depressions_least_cost(dem,
-                                                        max_dist=carve_dist,
-                                                        **breach_kws)
-        dem_no_deps = wbe.fill_depressions(dem_no_deps, **fill_kws)
-    else:
-        dem_no_deps = wbe.fill_depressions(dem, **fill_kws)
-
-    if input_is_xarray:
-        dem = wbRaster2xarray(dem).to_dataset(name='elevation_smooth')
-        sinks = wbRaster2xarray(sinks).to_dataset(name='sinks')
-        dem_no_deps = wbRaster2xarray(dem_no_deps).to_dataset(
-            name='elevation_nodeps')
-    return (sinks, dem_no_deps)
-
-
-def wbDEMstreams(dem: wbw.Raster,
-                 fdir: wbw.Raster,
-                 facc: wbw.Raster,
-                 facc_threshold: float = 1e6):
-    """
-    Extracts stream networks from a DEM using flow direction and flow
-    accumulation rasters.
-    Args:
-        dem (wbw.Raster): Digital Elevation Model raster.
-        fdir (wbw.Raster): Flow direction raster.
-        facc (wbw.Raster): Flow accumulation raster.
-        facc_threshold (float, optional): Threshold for flow
-            accumulation to define streams. Defaults to 1e6 (1 km2).
-    Returns:
-        geopandas.GeoDataFrame: GeoDataFrame containing the extracted stream
-            network.
-    """
-    streams_r = wbe.extract_streams(facc, facc_threshold)
-    streams_v = wbe.raster_streams_to_vector(streams_r, fdir)
-    streams_v = wbe.vector_stream_network_analysis(streams_v, dem)[0]
-    return streams_v, streams_r
-
-
-def wbDEMpreprocess(dem: xr.DataArray,
-                    raster2xarray: bool = False,
-                    vector2geopandas: bool = False,
-                    carve_dist: float = 0,
-                    flow_method: str = 'd8',
-                    return_streams: bool = False,
-                    facc_threshold: float = 1e5,
-                    fill_kws: dict = {},
-                    breach_kws: dict = {}) -> Tuple[xr.Dataset,
-                                                    gpd.GeoDataFrame]:
-    """
-    Preprocess a DEM (Digital Elevation Model) using WhiteboxTools to create
-    a depressionless DEM, compute flow direction, flow accumulation, and flow
-    length. Optionally, extract stream networks.
-
-    Args:
-        dem (xr.DataArray): Input DEM as an xarray DataArray.
-        raster2xarray (bool, optional): Whether to transform output rasters
-            to xarray objects. Defaults to False.
-        vector2geopandas (bool, optional): Whether to transform output vectors
-            to geopandas objects. Defaults to False.
-        carve_dist (float, optional): Maximum distance to carve when breaching.
-            Defaults to 0.
-        flow_method (str, optional): Flow direction algorithm used for
-            computing flow direction and flow accumulation rasters. Defaults to
-            'd8'. Options include: 'd8', 'rho8', 'dinf', 'fd8', 'Mdinf',
-            'Quinn1995', 'Qin2007'.
-        return_streams (bool, optional): Whether to extract and return stream
-            networks. Defaults to False.
-        facc_threshold (float, optional): Threshold for flow
-            accumulation to define streams. Defaults to 1e5.
-        fill_kws (dict, optional): Additional arguments for the fill
-            depressions method.
-        breach_kws (dict, optional): Additional arguments for the breach
-            depressions method.
-    Returns
-        Tuple[xr.Dataset, gpd.GeoDataFrame]: A tuple containing:
-            - xr.Dataset: Dataset with flow direction, flow accumulation,
-                and flow length.
-            - gpd.GeoDataFrame: GeoDataFrame with stream networks if
-                return_streams is True, otherwise an empty GeoDataFrame.
-    """
-    def _getf64(obj):
-        """
-        Simple function to return whitebox object datatype as float64
-        """
-        try:
-            return obj.get_value_as_f64()
-        except Exception:
-            return obj
-    dem_x = dem.copy()
-    dem = xarray2wbRaster(dem)
-
-    # DEM preprocess sinks
-    sinks, dem_no_deps = wbDEMfill(dem, carve_dist=carve_dist,
-                                   fill_kws=fill_kws, breach_kws=breach_kws)
-
-    # Compute flow direction, accumulation and flow path length
-    fdir, facc, flen = wbDEMflow(dem_no_deps, method=flow_method)
-
-    # Join rasters
-    names = ['elevation_nodeps', 'sinks', 'fdir', 'facc', 'flen']
-    rasters = [dem_no_deps, sinks, fdir, facc, flen]
-
-    # Compute vector streams if asked and return final results
-    if return_streams:
-        streams_v, streams_r = wbDEMstreams(dem, fdir, facc,
-                                            facc_threshold=facc_threshold)
-        names.append('streams')
-        rasters.append(streams_r)
-    else:
-        streams_v = None
-
-    # Transform whitebox Raster objects to xarray data arrays
-    if raster2xarray:
-        nrasters = []
-        for n, da in zip(names, rasters):
-            da = wbRaster2xarray(da).to_dataset(name=n)
-            da = da.reindex(x=dem_x.x, y=dem_x.y, method='nearest')
-            da = da.where(~dem_x.isnull()).rio.write_crs(dem_x.rio.crs)
-            nrasters.append(da)
-        rasters = nrasters
-
-    if vector2geopandas:
-        streams_v = wbVector2geopandas(streams_v).map(lambda x: _getf64(x))
-
-    return (rasters, streams_v)
 
 # ------------------------ Geomorphological properties ----------------------- #
 
@@ -289,6 +65,204 @@ def process_gdaldem(dem: xr.DataArray, varname: str, **kwargs: Any
     return out_ds
 
 
+# ---------------------- River network quality control ----------------------- #
+
+
+def qc_null_geometries(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Remove features with null or empty geometries from a river network.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Input river network.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame with null/empty geometries removed.
+    """
+    mask = gdf.geometry.isna() | gdf.geometry.is_empty
+    n_removed = int(mask.sum())
+    if n_removed:
+        warnings.warn(
+            f"qc_null_geometries: removed {n_removed} feature(s) with "
+            "null or empty geometry."
+        )
+    gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+    return gdf[~mask].reset_index(drop=True)
+
+
+def qc_check_connectivity(gdf: gpd.GeoDataFrame,
+                          tolerance: float = 1.0) -> list:
+    """
+    Identify near-miss connectivity errors in a river network. Segment
+    endpoints that are within *tolerance* of another endpoint but not
+    exactly coincident indicate a digitization gap that would break graph
+    connectivity. Issues are reported via warnings; the network is not
+    modified.
+
+    Args:
+        gdf (gpd.GeoDataFrame): River network (lines).
+        tolerance (float): Distance threshold in CRS units. Endpoint pairs
+            within this distance (exclusive of 0) are flagged.
+            Defaults to 1.0.
+
+    Returns:
+        list[tuple]: List of (seg_id_a, seg_id_b, distance) tuples for
+            each detected issue.
+    """
+    ep_records = []
+    for idx, row in gdf.iterrows():
+        coords = list(row.geometry.coords)
+        ep_records.append({'seg_id': idx, 'geometry': Point(coords[0])})
+        ep_records.append({'seg_id': idx, 'geometry': Point(coords[-1])})
+
+    ep_gdf = gpd.GeoDataFrame(ep_records, crs=gdf.crs)
+    sindex = ep_gdf.sindex
+
+    issues = []
+    for i, ep_row in ep_gdf.iterrows():
+        pt = ep_row.geometry
+        candidates = list(sindex.query(pt.buffer(tolerance)))
+        for j in candidates:
+            if i >= j:
+                continue
+            other = ep_gdf.iloc[j]
+            if ep_row['seg_id'] == other['seg_id']:
+                continue
+            dist = pt.distance(other.geometry)
+            if 0 < dist <= tolerance:
+                pair = (ep_row['seg_id'], other['seg_id'], float(dist))
+                issues.append(pair)
+                warnings.warn(
+                    f"Connectivity issue: segments {pair[0]} and {pair[1]} "
+                    f"have endpoints {pair[2]:.4f} CRS units apart."
+                )
+    return issues
+
+
+def _has_interior_intersections(gdf: gpd.GeoDataFrame) -> bool:
+    """
+    Return True if *gdf* contains any interior intersections.
+
+    Checks for X-intersections (two lines crossing at interior points) and
+    T-intersections (endpoint of one line on the interior of another).
+    """
+    # X-intersections
+    cross_join = gpd.sjoin(gdf[['geometry']], gdf[['geometry']],
+                           predicate='crosses', how='inner')
+    if len(cross_join[cross_join.index != cross_join['index_right']]) > 0:
+        return True
+
+    # T-intersections: endpoint of one segment within interior of another
+    ep_records = []
+    for idx, row in gdf.iterrows():
+        coords = list(row.geometry.coords)
+        ep_records.append({'seg_id': idx, 'geometry': Point(coords[0])})
+        ep_records.append({'seg_id': idx, 'geometry': Point(coords[-1])})
+    ep_gdf = gpd.GeoDataFrame(ep_records, crs=gdf.crs)
+    t_join = gpd.sjoin(ep_gdf, gdf[['geometry']], predicate='within',
+                       how='inner')
+    return len(t_join[t_join['seg_id'] != t_join['index_right']]) > 0
+
+
+def _find_cut_points(geom, candidates: list) -> list:
+    """
+    Return the list of interior intersection points between *geom* and a
+    list of candidate geometries. Points that coincide with *geom*'s own
+    endpoints are excluded.
+    """
+    ep1 = Point(geom.coords[0])
+    ep2 = Point(geom.coords[-1])
+    cut_points = []
+    seen_coords: set = set()
+
+    for other in candidates:
+        inter = geom.intersection(other)
+        if inter.is_empty:
+            continue
+        pts: list = []
+        if inter.geom_type == 'Point':
+            pts = [inter]
+        elif inter.geom_type in ('MultiPoint', 'GeometryCollection'):
+            pts = [g for g in inter.geoms if g.geom_type == 'Point']
+        for pt in pts:
+            coord = tuple(pt.coords[0])
+            if coord in seen_coords:
+                continue
+            if pt.distance(ep1) < 1e-10 or pt.distance(ep2) < 1e-10:
+                continue
+            seen_coords.add(coord)
+            cut_points.append(pt)
+
+    return cut_points
+
+
+def _split_at_points(geom, cut_points: list) -> list:
+    """
+    Split *geom* at each point in *cut_points* and return the resulting
+    list of LineString pieces. If a cut point projects outside the line
+    or the split fails, the piece is kept intact.
+    """
+    pieces = [geom]
+    for pt in cut_points:
+        next_pieces = []
+        for piece in pieces:
+            t = piece.project(pt)
+            if t <= 0 or t >= piece.length:
+                next_pieces.append(piece)
+                continue
+            on_line = piece.interpolate(t)
+            try:
+                next_pieces.extend(list(shapely_split(piece, on_line).geoms))
+            except Exception:
+                next_pieces.append(piece)
+        pieces = next_pieces
+    return pieces
+
+
+def qc_fix_interior_intersections(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Split line segments at interior intersection points so that every
+    junction is anchored at a segment endpoint. This converts
+    T-intersections (where a tributary meets the middle of a mainstem
+    segment) into proper topological nodes.
+
+    Segment attributes are preserved; split pieces inherit the attributes
+    of their parent segment. For networks with no interior intersections
+    the function returns immediately without any modification.
+
+    Args:
+        gdf (gpd.GeoDataFrame): River network (lines).
+
+    Returns:
+        gpd.GeoDataFrame: Network with segments split at all interior
+            intersections.
+    """
+    gdf = gdf.reset_index(drop=True).copy()
+
+    if not _has_interior_intersections(gdf):
+        return gdf
+
+    sindex = gdf.sindex
+    new_rows = []
+    for idx in gdf.index:
+        geom = gdf.at[idx, 'geometry']
+        row_data = gdf.loc[idx].to_dict()
+
+        candidates = [gdf.iloc[j].geometry
+                      for j in sindex.query(geom) if j != idx]
+        cut_points = _find_cut_points(geom, candidates)
+
+        if not cut_points:
+            new_rows.append(row_data)
+            continue
+
+        for piece in _split_at_points(geom, cut_points):
+            new_row = row_data.copy()
+            new_row['geometry'] = piece
+            new_rows.append(new_row)
+
+    return gpd.GeoDataFrame(new_rows, crs=gdf.crs).reset_index(drop=True)
+
+
 def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph:
     """
     Generate a networkx directed graph following a geodataframe with river
@@ -301,7 +275,9 @@ def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph
         so it is suitable only for braided rivers. Defaults to False.
 
     Returns:
-        (nx.DiGraph): River network represented as a directed acyclic graph.
+        tuple[nx.DiGraph | nx.MultiDiGraph, gpd.GeoDataFrame]: River network
+            as a directed graph and the processed segments GeoDataFrame
+            with topological order.
     """
     # Explode geodataframe into all possible segments
     gdf_segments = gdf_segments.explode(index_parts=False)
@@ -331,9 +307,18 @@ def rivers2graph(gdf_segments: gpd.GeoDataFrame, multigraph=False) -> nx.DiGraph
     # Assign a topological order
     topo_order = list(nx.topological_sort(G))
     node_topo_order = {node: i for i, node in enumerate(topo_order)}
-    edge_topo_order = {(u, v): node_topo_order[u] for u, v in G.edges()}
-    nx.set_edge_attributes(G, edge_topo_order, "topological_order")
-    gdf_segments['topological_order'] = list(edge_topo_order.values())
+    if multigraph:
+        edge_topo_order = {(u, v, k): node_topo_order[u]
+                           for u, v, k in G.edges(keys=True)}
+        nx.set_edge_attributes(G, edge_topo_order, "topological_order")
+        seg_topo = {G.edges[u, v, k]['segment_id']: topo
+                    for (u, v, k), topo in edge_topo_order.items()}
+    else:
+        edge_topo_order = {(u, v): node_topo_order[u] for u, v in G.edges()}
+        nx.set_edge_attributes(G, edge_topo_order, "topological_order")
+        seg_topo = {G.edges[u, v]['segment_id']: topo
+                    for (u, v), topo in edge_topo_order.items()}
+    gdf_segments['topological_order'] = gdf_segments.index.map(seg_topo)
     gdf_segments = gdf_segments.sort_values(by='topological_order')
     return G, gdf_segments
 
@@ -357,10 +342,7 @@ def get_main_river(river_network: gpd.GeoSeries | gpd.GeoDataFrame
     mriver_nodes = nx.dag_longest_path(G, weight='length')
     mriver_edges = list(zip(mriver_nodes[:-1], mriver_nodes[1:]))
     mask = [G.edges[edge]['segment_id'] for edge in mriver_edges]
-    main_river = gdf_segments.loc[mask]
-
-    top_order = [G.edges[edge]['topological_order'] for edge in mriver_edges]
-    main_river['topological_order'] = top_order
+    main_river = gdf_segments.loc[mask].copy()
     main_river = main_river.sort_values(by='topological_order')
     return main_river
 
@@ -463,6 +445,44 @@ def tc_SCS(mriverlen: float, meanslope: float,
     numerator = mriverlen_ft**0.8*((potentialstorage_inch+1) ** 0.7)
     denominator = 1140*slope_perc**0.5
     Tc = numerator/denominator*60  # 60 minutes = 1 hour
+    return Tc
+
+
+# def tc_SCSshallow(mriverlen: float, meanslope: float, roughness: float,
+#                    **kwargs: Any) -> float:
+#     """
+#     SCS shallow concentrated flow method.
+#     Valid for rural basins ¿?.
+#     Reference:
+#         Part 630 National Engineering Handbook. Chapter 15. NRCS
+#     Args:
+#         mriverlen (float): Main river length in (km)
+#         meanslope (float): Mean slope in m/m
+#         roughness (float): Roughness coefficient (dimensionless)
+#         **kwargs do nothing
+#     Returns:
+#         Tc (float): Concentration time (minutes)
+#     """
+#     Tc = roughness * mriverlen * meanslope ** -0.5
+#     return Tc
+
+def tc_SCSsheet(mriverlen: float, meanslope: float, roughness: float,
+                precipitation: float, **kwargs: Any) -> float:
+    """
+    SCS sheet flow method.
+    Reference:
+        Part 630 National Engineering Handbook. Chapter 15. NRCS
+    Args:
+        mriverlen (float): Main river length in (km)
+        meanslope (float): Mean slope in m/m
+        roughness (float): Roughness coefficient (dimensionless)
+        precipitation (float): 2-year Precipitation (mm)
+        **kwargs do nothing
+    Returns:
+        Tc (float): Concentration time (minutes)
+    """
+    Tc = 22.91 * roughness ** 0.8 * precipitation ** -0.5
+    Tc = Tc * mriverlen ** 0.8 * meanslope ** -0.4
     return Tc
 
 
@@ -585,8 +605,9 @@ def tc_bransbywilliams(area: float,
     Tc = 14.46 * (mriverlen) / (meanslope ** 0.2) / (area ** 0.1)
     return Tc
 
+
 def tc_morgalilinsley(mriverlen: float, meanslope: float,
-                      manning: float, precipitation_rate: float,
+                      roughness: float, precipitation_rate: float,
                       **kwargs: Any) -> float:
     """
     Linsley-Morgali equation method. Kinematic wave method ¿?.  
@@ -594,10 +615,24 @@ def tc_morgalilinsley(mriverlen: float, meanslope: float,
     Reference:
         ???
     """
-    a = (mriverlen * manning) ** 0.6
+    a = (mriverlen * roughness) ** 0.6
     b = (precipitation_rate ** 0.4) * (meanslope ** 0.3)
     Tc = 420 * a / b
     return Tc
+
+
+# def tc_kerby(mriverlen: float, meanslope: float, roughness: float,
+#              **kwargs: Any) -> float:
+#     """
+#     Kerby equation method. Used for overland sheet flow in small basins and
+#     hillslopes.
+
+#     Reference:
+#         ???
+#     """
+#     Tc = 36.36 * roughness ** 0.467 * mriverlen ** 0.467 * meanslope ** -0.234
+#     return Tc
+
 
 @np.vectorize
 def concentration_time(method: str, **kwargs: Any) -> float:

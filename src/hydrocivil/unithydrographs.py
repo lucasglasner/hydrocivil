@@ -10,6 +10,7 @@
 import warnings
 import numpy as np
 import pandas as pd
+import xarray as xr
 import scipy.signal as sg
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -22,6 +23,7 @@ from shapely.geometry import Point
 from .geomorphology import concentration_time
 from .global_vars import CHILE_UH_LINSLEYPARAMS, CHILE_UH_GRAYPARAMS
 from .global_vars import CHILE_UH_LINSLEYPOLYGONS, CHILE_UH_GRAYPOLYGONS
+from .misc import obj2xarray
 
 
 # ----------------------------- UNIT HYDROGRAPHS ----------------------------- #
@@ -98,6 +100,8 @@ def SUH_Clark(area: float, tc: float, tstep: float,
     text = "SUH_Clark() missing 1 required positional argument: 'R' or 'X'"
     if R is None:
         if X is not None:
+            if X < 0 or X > 1:
+                raise ValueError("X must be between 0 and 1")
             R = X * tc / (1 - X)
         else:
             raise TypeError(text)
@@ -505,7 +509,8 @@ class LumpedUnitHydrograph():
         self.scurve = None
         self.params = None
 
-    def _Clark(self, timestep: float, tc_formula: str = 'SCS', **kwargs: Any
+    def _Clark(self, timestep: float, tc_formula: str = 'SCS',
+               tc: float = None, **kwargs: Any
                ) -> Tuple[pd.Series, pd.Series]:
         """
         Compute the unit hydrograph following Clark's model.
@@ -516,23 +521,31 @@ class LumpedUnitHydrograph():
             tc_formula (str, optional): Empirical formula used for computing
                 the time of concentration. Options: 'California', 'Giandotti',
                 'Kirpich', 'SCS', 'Spain'. Defaults to 'SCS'.
+            tc (float, optional): Time of concentration in hours.
+                If given, it will be used instead of computing it from the
+                tc_formula. Defaults to None.
+            **kwargs: Additional parameters for the Clark model (e.g. R or X).
 
         Returns:
             (tuple): tuple with the unit hydrograph time series and the
                 respective table of parameters
         """
         area = self.geoparams['area']
-        if 'tc' in self.geoparams.keys():
+        if tc is not None:
+            uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc,
+                                      **kwargs)
+        elif 'tc' in self.geoparams.keys():
             tc = self.geoparams['tc']
-            uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc)
+            uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc,
+                                      **kwargs)
         else:
             tc = concentration_time(method=tc_formula, **self.geoparams)/60
             uh, uh_params = SUH_Clark(tstep=timestep, area=area, tc=tc,
                                       **kwargs)
         return uh, uh_params
 
-    def _SCS(self, timestep: float, tc_formula: str = 'SCS', **kwargs: Any
-             ) -> Tuple[pd.Series, pd.Series]:
+    def _SCS(self, timestep: float, tc_formula: str = 'SCS', tc: float = None,
+             **kwargs: Any) -> Tuple[pd.Series, pd.Series]:
         """
         Compute the unit hydrograph following the SCS model.
 
@@ -542,6 +555,9 @@ class LumpedUnitHydrograph():
             tc_formula (str, optional): Empirical formula used for computing
                 the time of concentration. Options: 'California', 'Giandotti',
                 'Kirpich', 'SCS', 'Spain'. Defaults to 'SCS'.
+            tc (float, optional): Time of concentration in hours.
+                If given, it will be used instead of computing it from the
+                tc_formula. Defaults to None.
             **kwargs: Additional parameters for the SCS model. If tc given in
                       kwargs, it will be used instead of computing it from the
                       tc_formula.
@@ -551,9 +567,13 @@ class LumpedUnitHydrograph():
                 respective table of parameters
         """
         area = self.geoparams['area']
-        if 'tc' in self.geoparams.keys():
+        if tc is not None:
+            uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc,
+                                    **kwargs)
+        elif 'tc' in self.geoparams.keys():
             tc = self.geoparams['tc']
-            uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc)
+            uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc,
+                                    **kwargs)
         else:
             tc = concentration_time(method=tc_formula, **self.geoparams)/60
             uh, uh_params = SUH_SCS(tstep=timestep, area=area, tc=tc,
@@ -699,35 +719,66 @@ class LumpedUnitHydrograph():
         self.timestep = duration
         self.unithydro = uh_new
         self.params = params_new
-        self.scurve = scurve_new
+        self.scurve = self.get_SHydrograph()
         return self
 
-    def convolve(self, rainfall: pd.Series | pd.DataFrame, **kwargs: Any
-                 ) -> pd.Series | pd.DataFrame:
+    def convolve(self, rainfall, **kwargs: Any) -> xr.DataArray:
         """
-        Returns:
-            pd.Series | pd.DataFrame: The resulting flood hydrograph
-                after convolving the rainfall series with the unit hydrograph.
+        Convolve rainfall with the unit hydrograph. All input types are
+        internally converted to xarray via obj2xarray so the output is
+        always an xr.DataArray with a numeric 'time' coordinate (hours).
 
         Args:
-            rainfall (array_like): Series of rain data
+            rainfall (pd.Series | pd.DataFrame | np.ndarray | list |
+                xr.DataArray): Rainfall data. For pandas and xarray inputs
+                the index / 'time' coordinate values must be numeric hours
+                matching self.timestep. For numpy arrays and lists the
+                discretization is assumed to match self.timestep.
+            kwargs: Additional keyword arguments passed to xarray.apply_ufunc.
 
         Raises:
-            ValueError: If the unit hydrograph is not computed inside the class
+            RuntimeError: If the detected time step does not match
+                self.timestep.
 
         Returns:
-            (pandas.Series): flood hydrograph 
+            xr.DataArray: Flood hydrograph with a numeric 'time' coordinate.
         """
-        dt = rainfall.index[1]-rainfall.index[0]
-        if dt != self.timestep:
-            text = 'Rain series and UH time resolution must match !!'
-            raise RuntimeError(text)
-        if len(rainfall.shape) > 1:
-            def func(col): return sg.convolve(col, self.unithydro)
-            hydrograph = rainfall.apply(func, **kwargs)
+        # Convert rainfall to xarray DataArray
+        if isinstance(rainfall, xr.DataArray):
+            da = rainfall
         else:
-            hydrograph = pd.Series(sg.convolve(rainfall, self.unithydro))
-        hydrograph.index = hydrograph.index*self.timestep
+            da = obj2xarray(rainfall)
+            # Rename axis-0 dimension to 'time'
+            first_dim = da.dims[0]
+            if first_dim != 'time':
+                da = da.rename({first_dim: 'time'})
+            # For non-indexed inputs assign numeric hour coordinates
+            if not isinstance(rainfall, (pd.Series, pd.DataFrame)):
+                n = da.sizes['time']
+                da = da.assign_coords(time=np.arange(n) * self.timestep)
+                
+        time_vals = da['time'].values
+        dt = float(time_vals[1] - time_vals[0])
+        if dt != self.timestep:
+            text = 'Rain series and unit hydrograph time resolution must match.'
+            raise RuntimeError(text)
+        n_out = len(time_vals) + len(self.unithydro) - 1
+        new_time = np.arange(n_out) * self.timestep
+        uh_da = xr.DataArray(self.unithydro.values, dims=['uh_time'])
+        hydrograph = xr.apply_ufunc(
+            sg.convolve,
+            da,
+            uh_da,
+            input_core_dims=[['time'], ['uh_time']],
+            output_core_dims=[['time']],
+            exclude_dims={'time'},
+            vectorize=True,
+            **kwargs
+        )
+        hydrograph = hydrograph.assign_coords(time=new_time)
+        hydrograph.attrs = {'units': 'm3/s',
+                            'standard_name': 'flood_hydrograph'}
+        hydrograph.name = 'q'
         return hydrograph
 
     def compute(self, timestep: float, upper_tail_threshold: float = 1e-4,

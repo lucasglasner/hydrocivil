@@ -18,9 +18,20 @@ SHYETO_PATH = os.path.join(DATA_FOLDER, 'synthetic_storms.csv')
 AB_ZONEPATH = os.path.join(DATA_FOLDER, 'vector', 'ZONAS_LINSLEYCHILE.shp')
 CHILE_GRAYZONEPATH = os.path.join(DATA_FOLDER, 'vector', 'ZONAS_GRAYCHILE.shp')
 
-# ---------------------------- DATA AND PARAMETERS --------------------------- #
+# ----------------------------- GLOBAL PARAMETERS ---------------------------- #
+try:
+    HAS_WHITEBOX = True
+    import whitebox_workflows
+except:
+    HAS_WHITEBOX = False
+
+GDAL_EXCEPTIONS = True
+GRAVITY = 9.81
+
+# ----------------------------- SYNTHETIC_STORMS ----------------------------- #
 SHYETO_DATA = pd.read_csv(SHYETO_PATH, index_col=0)
 
+# ------------------------------ UNIT HYDROGRAPH ----------------------------- #
 CHILE_UH_LINSLEYPOLYGONS = gpd.read_file(AB_ZONEPATH)
 CHILE_UH_LINSLEYPARAMS = {
     'C_t': [0.323,   0.584,   1.351,   0.386],
@@ -35,8 +46,7 @@ CHILE_UH_LINSLEYPARAMS.columns = ['I', 'II', 'III', 'IV']
 
 CHILE_UH_GRAYPOLYGONS = gpd.read_file(CHILE_GRAYZONEPATH)
 CHILE_UH_GRAYPARAMS = {'a': 24.48, 'b': 0.155}
-GDAL_EXCEPTIONS = True
-GRAVITY = 9.81
+
 
 # ---------------------------- DURATION COEFFICIENTS -------------------------- #
 DURCOEFS_PGAUGES = {

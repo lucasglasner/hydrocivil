@@ -24,7 +24,7 @@ def centergraph2polygon(polygon, ax):
         ax: The matplotlib axis to adjust.
     """
     ds, c = minradius_from_centroid(polygon)
-    cx, cy = c.x.item(), c.y.item()
+    cx, cy = c.x, c.y
     ax.set_xlim(cx - ds*0.99, cx + ds*0.99)
     ax.set_ylim(cy - ds*0.99, cy + ds*0.99)
 

@@ -253,7 +253,7 @@ class IDF:
         """Convert IDF to RDF curve."""
         xr_rdf = xr_idf * xr_idf['duration']
         xr_rdf.name = 'rainfall'
-        xr_rdf.attrs = {'standard_name': 'total_rainfall_vs_duration',
+        xr_rdf.attrs = {'standard_name': 'total_rainfall',
                         'units': 'mm'}
         return xr_rdf
 
@@ -262,7 +262,7 @@ class IDF:
         durations = xr_rdf['duration']
         xr_idf = xr_rdf / durations
         xr_idf.name = 'intensity'
-        xr_idf.attrs = {'standard_name': 'intensity_vs_duration',
+        xr_idf.attrs = {'standard_name': 'precipitation_rate',
                         'units': 'mm/hr'}
         return xr_idf
 
@@ -323,15 +323,32 @@ class IDF:
         return a / ((t + c) ** b)
 
     # ----------------------------------- Core ------------------------------- #
+    @staticmethod
+    def _make_duration_coord(values: ArrayLike) -> xr.DataArray:
+        """Create a duration coordinate DataArray with standard metadata."""
+        if isinstance(values, xr.DataArray):
+            values = values.values
+        da = xr.DataArray(np.asarray(values, dtype=float), dims=['duration'])
+        da['duration'].attrs = {'standard_name': 'duration', 'units': 'hr'}
+        return da
+
+    def _stamp_duration_attrs(self) -> None:
+        """Stamp standard duration metadata on all stored IDF DataArrays."""
+        dur_attrs = {'standard_name': 'duration', 'units': 'hr'}
+        targets = ('idf', 'rdf', 'dcoefs',
+                   'idf_sampled', 'rdf_sampled', 'dcoefs_sampled')
+        for name in targets:
+            da = getattr(self, name, None)
+            if isinstance(da, xr.DataArray) and 'duration' in da.coords:
+                da['duration'].attrs = dur_attrs
+
     def _build_duration_axis(self):
         """
         Build time axis based on duration limits and timestep.
         """
         dt = self.timestep
         dur_min, dur_max = self.duration_limits
-        durations = np.arange(dur_min, dur_max + dt, dt)
-        durations = xr.DataArray(durations, dims=['duration'])
-        return durations
+        return self._make_duration_coord(np.arange(dur_min, dur_max + dt, dt))
 
     def _sample_idf_curve(self, durations: ArrayLike = None,
                           **kwargs) -> xr.DataArray:
@@ -341,7 +358,7 @@ class IDF:
         # Build
         if durations is None:
             durations = DURCOEFS_PGAUGES.index.values
-        durations = xr.DataArray(durations, dims=['duration'])
+        durations = self._make_duration_coord(durations)
         cds = duration_coef(durations, **kwargs)
         cds = xr.DataArray(cds, dims=['duration'], name='cds',
                            coords={'duration': durations})
@@ -350,11 +367,11 @@ class IDF:
 
         # Name and attrs
         rdf.name = 'rainfall'
-        rdf.attrs = {'standard_name': 'total_rainfall_vs_duration',
+        rdf.attrs = {'standard_name': 'total_rainfall',
                      'units': 'mm'}
 
         idf.name = 'intensity'
-        idf.attrs = {'standard_name': 'intensity_vs_duration',
+        idf.attrs = {'standard_name': 'precipitation_rate',
                      'units': 'mm/hr'}
 
         self.idf_sampled = idf
@@ -368,12 +385,14 @@ class IDF:
         fit coefficients and R-squared value.
 
         The fit enforces the constraint i(24) = rain24/24, reducing the number
-        of free parameters by one.
+        of free parameters by one. The derived parameter `a` is computed from
+        the fitted parameters and rain_24 and stored as the first element of
+        fitcoefs_.
         """
         func_map = {
-            1: (self._powerlaw_type1, [[], []]),      # Only b parameter + r2
-            2: (self._powerlaw_type2, [[], [], []]),  # b, c parameters + r2
-            3: (self._powerlaw_type3, [[], [], []])   # b, c parameters + r2
+            1: (self._powerlaw_type1, [[], [], []]),     # a, b, + r2
+            2: (self._powerlaw_type2, [[], [], [], []]), # a, b, c, + r2
+            3: (self._powerlaw_type3, [[], [], [], []])  # a, b, c, + r2
         }
 
         func, output_dims = func_map[idf_model_type]
@@ -382,16 +401,25 @@ class IDF:
             # Create wrapper with explicit parameters based on model type
             if idf_model_type == 1:
                 # Type I: only b parameter
-                def func_with_rain_24(
-                    t_fit, b): return func(t_fit, b, rain_24)
+                def func_with_rain_24(t_fit, b): return func(
+                    t_fit, b, rain_24)
+                popt, _ = curve_fit(func_with_rain_24, t, i,
+                                    bounds=(0, np.inf), **kwargs)
+                b, = popt
+                a = rain_24 * (24 ** (b - 1))
             else:
                 # Type II and III: b, c parameters
                 def func_with_rain_24(t_fit, b, c): return func(
                     t_fit, b, c, rain_24)
+                popt, _ = curve_fit(func_with_rain_24, t, i,
+                                    bounds=(0, np.inf), **kwargs)
+                b, c = popt
+                if idf_model_type == 2:
+                    a = rain_24 * (24 ** b + c) / 24
+                else:
+                    a = rain_24 * ((24 + c) ** b) / 24
 
-            popt, _ = curve_fit(func_with_rain_24, t, i,
-                                bounds=(0, np.inf), **kwargs)
-            return (*popt, rsquared(i, func(t, *popt, rain_24)))
+            return (a, *popt, rsquared(i, func(t, *popt, rain_24)))
 
         # Get rain24 at 24 hours
         rain_24 = self.idf_sampled.interp(duration=24) * 24
@@ -438,7 +466,7 @@ class IDF:
         """
         Evaluate the fitted parametric model at given durations.
         """
-        durations = xr.DataArray(durations, dims=['duration'])
+        durations = self._make_duration_coord(durations)
         if self.fitcoefs_ is None and self.rsquared_ is None:
             raise ValueError("Model must be fitted before evaluation.")
 
@@ -453,12 +481,13 @@ class IDF:
         # Get rain24 for a 24 hour storm
         rain_24 = self.idf_sampled.interp(duration=24) * 24
 
-        # Evaluate model with rain_24 constraint
-        idf = model(durations, *self.fitcoefs_, rain_24)
+        # Evaluate model with rain_24 constraint (fitcoefs_[0] is `a`,
+        # which is derived internally by the model from rain_24; skip it)
+        idf = model(durations, *self.fitcoefs_[1:], rain_24)
         idf = idf.assign_coords({'duration': durations})
         idf = idf.transpose(*self.idf_sampled.dims)
-        idf.name = 'intensity'
-        idf.attrs = {'standard_name': 'intensity_vs_duration',
+        idf.name = 'precipitation_rate'
+        idf.attrs = {'standard_name': 'precipitation_rate',
                      'units': 'mm/hr'}
         return idf
 
@@ -553,6 +582,7 @@ class IDF:
             self.dcoefs = self._idf2dcoef(self.idf)
 
         self._force0duration()
+        self._stamp_duration_attrs()
         return self
 
 
@@ -603,13 +633,6 @@ class RainStorm(IDF):
             bell_threshold (int, float): Duration threshold [hr] below which
                 Bell's formula is applied. Default is 1 hr. Force to 0 to
                 disable.
-            idf_model_type (int, optional): Type of parametric model to fit.
-                Only used if parametric=True.
-                Options:
-                    1: Type I power law: i(t) = a / t^b
-                    2: Type II power law: i(t) = a / (t^b + c)
-                    3: Type III power law: i(t) = a / (t + c)^b
-                Defaults to 2.
             duration_limits (ArrayLike, optional): Min and max duration limits
                 in hours for the IDF curve. Defaults to (0, 72).
             **storm_kwargs: Additional parameters depending on storm type.
@@ -684,8 +707,10 @@ class RainStorm(IDF):
                                   self.timestep)
         base_time = xr.DataArray(base_time, dims=['time'],
                                  coords={'time': base_time})
+        base_time['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
         extended_time = xr.DataArray(extended_time, dims=['time'],
                                      coords={'time': extended_time})
+        extended_time['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
         return base_time, extended_time
 
     def _shift_timeseries_1d(self, arr: np.ndarray,
@@ -741,6 +766,7 @@ class RainStorm(IDF):
             self.rdf = self.rain24.expand_dims({'duration': self.durations})
             self.idf = self._rdf2idf(self.rdf)
             self.dcoefs = self._rdf2dcoef(self.rdf)
+            self._stamp_duration_attrs()
         return self
 
 # -------------------- Synthetic Hyetograph functionality -------------------- #
@@ -792,7 +818,6 @@ class RainStorm(IDF):
         # Normalize final value to 1.0 to ensure pr_cum matches rainfall
         shyeto = shyeto / shyeto.isel(time=-1, drop=False)
         shyeto = shyeto.assign_coords(time=base_time)
-        shyeto['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
         return shyeto
 
 # ----------------------------------- Core ----------------------------------- #
@@ -894,6 +919,7 @@ class RainStorm(IDF):
         time = time.clip(0, xr_duration)
         pr_cum = self._evaluate_rdf(time, **interp_kwargs)
         pr_depth = pr_cum.diff('time').pad(time=(1, 0), constant_values=0)
+        pr_depth = pr_depth.assign_coords(time=pr_cum['time'])
         pr = pr_depth / self.timestep
 
         pr = xr.apply_ufunc(alternating_block_sort,
@@ -903,6 +929,7 @@ class RainStorm(IDF):
                             vectorize=True).transpose('time', *dims.keys())
         pr = pr.pad(time=(1, 0), constant_values=0)
         pr = pr.fillna(0).isel(time=slice(None, -1))
+        pr = pr.assign_coords(time=pr_cum['time'])
         pr_depth = pr * self.timestep
         pr_cum = pr_depth.cumsum('time')
         return pr_cum, pr_depth, pr
@@ -922,6 +949,7 @@ class RainStorm(IDF):
 
         # Differentiate to get precipitation rate
         pr_depth = pr_cum.diff('time').pad(time=(1, 0), constant_values=0)
+        pr_depth = pr_depth.assign_coords(time=pr_cum['time'])
         pr = pr_depth / self.timestep
         return pr_cum, pr_depth, pr
 
@@ -990,6 +1018,9 @@ class RainStorm(IDF):
         # pr_cum = pr_cum.reindex({'time': extended_time}, method='pad')
 
         # Assign names and attributes
+        for _da in (pr, pr_cum, pr_depth):
+            _da['time'].attrs = {'standard_name': 'time', 'units': 'hr'}
+
         pr.name, pr.attrs = 'pr', {
             'standard_name': 'precipitation rate', 'units': 'mm/hr'}
 
