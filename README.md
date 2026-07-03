@@ -16,10 +16,18 @@ Before installing, check your environment for the following packages:
 
 ## Installation
 
-Currently the package can only be installed via pip:
+The package can be installed via pip:
 
 ```shell
 pip install --force-reinstall --no-deps hydrocivil
+```
+
+Or locally from a fresh enviroment using the given *.yml*:
+
+```shell
+conda create -n myenv
+conda activate myenv
+conda env update --file hydrocivil.yml --prune
 ```
 
 ## Example Use
