@@ -25,9 +25,8 @@ pip install --force-reinstall --no-deps hydrocivil
 ## Example Use
 
 ```python
-from hydrocivil.misc import load_example_data
-from hydrocivil.watersheds import RiverBasin
-from hydrocivil.rain import RainStorm
+from hydrocivil import RainStorm, RiverBasin
+from hydrocivil.resources import load_example_data
 import matplotlib.pyplot as plt
 ```
 
@@ -43,8 +42,8 @@ import matplotlib.pyplot as plt
 basin, rnetwork, dem, cn = load_example_data()
 
 # Create RiverBasin object and compute properties
-wshed = RiverBasin(fid='Example', basin=basin, rivers=rnetwork, dem=dem, lulc=cn, amc='wet')
-wshed = wshed.compute_params()  # <- compute geomorphological parameters (SI units)
+wshed = RiverBasin(fid='Example', basin=basin, dem=dem, rivers=rnetwork, lulc=cn, amc='wet')
+wshed.compute_params()  # <- compute geomorphological parameters (SI units)
 wshed.plot() # Check results (e.g basin polygon, identified main river, etc)
 ```
 
@@ -55,15 +54,15 @@ wshed.plot() # Check results (e.g basin polygon, identified main river, etc)
 #### Create an hypothetical storm
 
 ```python
-# Create a 100 milimeter, 24 hours duration, SCS type I storm with pulses every 30 minutes
-storm = RainStorm('SCS_I24')
-storm = storm.compute(timestep=0.5, duration=24, rainfall=100)
+# Create a 100 milimeter, 24 hours duration, SCS type I storm with pulses every half an hour
+storm = RainStorm('SCS_I24', timestep=0.5, rain24=100)
+storm.fit(ref_pgauge='Grunsky')
+storm.compute(target_duration=24)
 # Use SCS method for abstractions with the watershed average curve number
-storm = storm.infiltrate(method='SCS', cn=wshed.geoparams.loc['cn'].item())
+pr_eff, infr = wshed.infiltrate(pr = storm.pr, method = 'SCS')
 
 storm.pr.to_series().plot(kind='bar', width=1, ec='k')
-storm.infr.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
-plt.ylabel('mm/h')
+infr.to_series().plot(kind='bar', width=1, color='tab:purple', ec='k')
 ```
 
     <Axes: >
@@ -74,11 +73,10 @@ plt.ylabel('mm/h')
 
 ```python
 # Compute the basin SCS unit hydrograph for the storm (UH related to the storm timestep)
-wshed = wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph and SCS lagtime formula. 
+wshed.SynthUnitHydro(method='SCS', timestep=storm.timestep) # By default this uses the 484 SCS unit hydrograph and SCS lagtime formula. 
 
 # Compute the flood hydrograph as the convolution of the effective precipitation depth with the unit hydrograph
-wshed.unithydro.convolve(storm.pr_eff.to_series() * storm.timestep).plot()
-plt.ylabel('m³/s')
+wshed.UnitHydro.convolve(pr_eff).plot()
 ```
 
     <Axes: >
